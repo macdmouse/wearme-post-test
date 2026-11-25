@@ -1,0 +1,7 @@
+{
+  "name": "ble_lib",
+  "version": "1.0.0",
+  "description": "Puerto serie por BLE (Nordic UART Service) sobre Bluefruit / SoftDevice S140 para la app del Wearme: comandos de texto de la app y lineas de texto (JSON/CSV) hacia la app. Requiere Bluefruit52Lib del framework Seeed nRF52.",
+  "frameworks": "arduino",
+  "platforms": "nordicnrf52"
+}

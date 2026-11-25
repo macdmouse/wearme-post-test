@@ -1,0 +1,7 @@
+{
+  "name": "mesh_ring",
+  "version": "1.0.0",
+  "description": "Anillo de respaldo entre collares Wearme sobre Meshtastic: mediciones sin gateway, repeticion multi-salto, puentes LoRaWAN con reclamo/entregado y caches anti-duplicados. Logica pura (sin radio); usa lib/mesh_lib.",
+  "frameworks": "arduino",
+  "platforms": "nordicnrf52"
+}

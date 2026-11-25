@@ -1,0 +1,30 @@
+# Estación de montaje Wearme en Cloudflare: la página (public/) + la API (src/index.js) + la base D1.
+# Todo detrás de Cloudflare Access (inicio de sesión). Pasos de instalación: README.md de esta carpeta.
+name = "wearme-estacion"
+main = "src/index.js"
+compatibility_date = "2025-10-01"
+# Solo la dirección principal (protegida con Access). Las Preview URLs serían otras direcciones sin Access.
+workers_dev = true
+preview_urls = false
+
+# Página y firmwares (los genera: python tools/build_estacion.py --web). Las rutas /api/* no son archivos: las
+# atiende src/index.js
+[assets]
+directory = "./public"
+binding = "ASSETS"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "wearme-estacion"
+database_id = "ba429cd6-2e8e-45b8-8da5-6eb957d2134a" # lo da: npx wrangler@4.156.0 d1 create wearme-estacion
+migrations_dir = "migrations"
+
+[vars]
+# Cloudflare Access (Zero Trust → Access → Applications → la aplicación de la estación)
+ACCESS_TEAM_DOMAIN = "https://wispy-smoke-9887.cloudflareaccess.com"
+ACCESS_AUD = "8e14a44ce003e333c1dc122e8f9bc968ed1a19b9ae4e2785766bd6e7c7b9f84e" # "Application Audience (AUD) Tag"
+# Correos que pueden agregar nodos a la base y reasignar un nodo que ya tiene otra tarjeta (separados por coma)
+ADMINS = "martin.cifuentes@javerianacali.edu.co,phenoagroomicas@javerianacali.edu.co"
+# Nodos nuevos que crea la estación: JoinEUI al azar por dispositivo (como el generador). Si el servidor de red asigna
+# uno fijo, ponerlo aquí (16 hex) y todos los nodos nuevos lo usarán
+JOIN_EUI = ""

@@ -1,0 +1,7 @@
+{
+  "name": "mesh_lib",
+  "version": "1.0.0",
+  "description": "Paquetes Meshtastic de solo envio (texto, posicion y NodeInfo) para un nodo que no retransmite: cabecera, protobuf Data, cifrado AES-128-CTR del canal y frecuencia por region/preset/nombre de canal. No toca el radio.",
+  "frameworks": "arduino",
+  "platforms": "nordicnrf52"
+}

@@ -1,0 +1,384 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nodos Wearme</title>
+<!--
+  Registro de nodos de la estación web (estacion_web): todos los DevEUI de la base, qué tarjeta tiene cada nodo, el
+  siguiente número del consecutivo y cuáles faltan por registrar en la plataforma LoRaWAN (servidor de red).
+  La copia la publica tools/build_estacion.py --web en estacion_web/public/nodos.html. Usa la API de src/index.js.
+-->
+<style>
+  :root {
+    --bg: #f4f5f7; --panel: #ffffff; --ink: #1b2130; --muted: #5b6475; --line: #dde1e8;
+    --ok: #1e7d46; --ok-bg: #e5f4eb; --bad: #c0262d; --bad-bg: #fde9ea;
+    --warn: #9a5b00; --warn-bg: #fff3d9; --info: #1d5bb8; --info-bg: #e7effb;
+    --none: #7d8696; --none-bg: #eceef2; --accent: #1d5bb8; --on-accent: #ffffff; --shadow: 0 1px 2px rgba(20, 30, 50, .06);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #12151b; --panel: #1b2029; --ink: #e6e9ef; --muted: #9aa3b2; --line: #2c3340;
+      --ok: #5cc98a; --ok-bg: #173325; --bad: #ff7a7f; --bad-bg: #3a1c20;
+      --warn: #f0b552; --warn-bg: #3a2c12; --info: #7fb0ff; --info-bg: #1a2a45;
+      --none: #8a93a3; --none-bg: #252b36; --accent: #7fb0ff; --on-accent: #0b1220; --shadow: none;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  header { background: var(--panel); border-bottom: 1px solid var(--line); padding: 10px 16px;
+           display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; }
+  header h1 { font-size: 18px; margin: 0; margin-right: auto; }
+  .meta { color: var(--muted); font-size: 13px; }
+  button, a.btn { font: inherit; border: 1px solid var(--line); background: var(--panel); color: var(--ink);
+                  padding: 7px 14px; border-radius: 8px; cursor: pointer; text-decoration: none; }
+  button:hover:not(:disabled), a.btn:hover { border-color: var(--accent); }
+  button:disabled { opacity: .5; cursor: default; }
+  button.small { padding: 3px 10px; font-size: 13px; }
+  main { max-width: 1320px; margin: 0 auto; padding: 16px; display: grid; gap: 16px; }
+  .tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+  @media (max-width: 760px) { .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  .tile { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px;
+          box-shadow: var(--shadow); min-width: 0; }
+  .tile .k { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+  .tile .v { font-size: 26px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .tile .x { font-size: 13px; color: var(--muted); }
+  .tile.next { background: var(--info-bg); border-color: transparent; } .tile.next .v { color: var(--info); }
+  .tile.pend.on { background: var(--warn-bg); border-color: transparent; } .tile.pend.on .v { color: var(--warn); }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px;
+           box-shadow: var(--shadow); min-width: 0; }
+  .tools { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; margin-bottom: 12px; }
+  .tools input[type=search], .tools select { font: inherit; padding: 6px 10px; border-radius: 8px;
+           border: 1px solid var(--line); background: var(--panel); color: var(--ink); min-width: 0; }
+  .tools input[type=search] { flex: 1 1 220px; }
+  .tools label { font-size: 14px; display: flex; gap: 6px; align-items: center; }
+  .scroll { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; }
+  th { text-align: left; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted);
+       font-weight: 600; padding: 6px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  td { padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  tr:last-child td { border-bottom: 0; }
+  td.node { font-weight: 700; white-space: nowrap; }
+  .hex { font: 13px ui-monospace, Consolas, monospace; white-space: nowrap; cursor: copy; border-radius: 4px; padding: 1px 3px; }
+  .hex:hover { background: var(--none-bg); }
+  .sub { display: block; font-size: 12px; color: var(--muted); white-space: nowrap; }
+  .tag { display: inline-block; font-size: 12px; font-weight: 600; padding: 1px 8px; border-radius: 99px;
+         background: var(--none-bg); color: var(--none); white-space: nowrap; }
+  .tag.ok { background: var(--ok-bg); color: var(--ok); }
+  .tag.bad { background: var(--bad-bg); color: var(--bad); }
+  .tag.warn { background: var(--warn-bg); color: var(--warn); }
+  .tag.info { background: var(--info-bg); color: var(--info); }
+  .plat { display: flex; gap: 6px; align-items: center; white-space: nowrap; }
+  .empty { color: var(--muted); padding: 18px 10px; text-align: center; }
+  #msg { margin: 0; font-weight: 600; }
+  #msg.bad { color: var(--bad); } #msg.ok { color: var(--ok); }
+  .note { font-size: 13px; color: var(--muted); margin: 10px 0 0; }
+  dialog { border: 1px solid var(--line); border-radius: 14px; padding: 0; width: min(560px, calc(100vw - 32px));
+           background: var(--panel); color: var(--ink); }
+  dialog::backdrop { background: rgba(10, 14, 22, .45); }
+  .dlg { padding: 18px 20px; display: grid; gap: 12px; }
+  .dlg h2 { margin: 0; font-size: 20px; }
+  .creds { display: grid; grid-template-columns: auto 1fr auto; gap: 8px 12px; align-items: center; }
+  .creds dt { color: var(--muted); font-size: 13px; }
+  .creds dd { margin: 0; font: 14px ui-monospace, Consolas, monospace; overflow-wrap: anywhere; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
+  #toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); background: var(--ink); color: var(--bg);
+           padding: 8px 14px; border-radius: 8px; font-size: 14px; opacity: 0; transition: opacity .2s; pointer-events: none; }
+  #toast.on { opacity: 1; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Nodos registrados</h1>
+  <span id="user" class="meta"></span>
+  <a class="btn" href="./">Estación de montaje</a>
+  <button id="btnReload">Actualizar</button>
+</header>
+
+<main>
+  <section class="tiles">
+    <div class="tile next"><div class="k">Siguiente nodo</div><div class="v" id="tNext">—</div>
+      <div class="x">El que recibe la próxima tarjeta nueva</div></div>
+    <div class="tile"><div class="k">Nodos en la base</div><div class="v" id="tTotal">—</div><div class="x" id="tGaps"></div></div>
+    <div class="tile"><div class="k">En una tarjeta</div><div class="v" id="tBoards">—</div><div class="x" id="tFree"></div></div>
+    <div class="tile pend" id="tPendBox"><div class="k">Falta registrar en la plataforma</div><div class="v" id="tPend">—</div>
+      <div class="x">Servidor de red LoRaWAN</div></div>
+  </section>
+
+  <section class="panel">
+    <div class="tools">
+      <input type="search" id="q" placeholder="Buscar nodo, DevEUI o DEVICEID de la tarjeta" aria-label="Buscar">
+      <select id="filter" aria-label="Mostrar">
+        <option value="all">Todos</option>
+        <option value="pending">Falta registrar en la plataforma</option>
+        <option value="board">Con tarjeta</option>
+        <option value="noboard">Sin tarjeta</option>
+      </select>
+      <label id="keysLbl" hidden><input type="checkbox" id="keys"> CSV con AppKey</label>
+      <button id="btnCsv">Descargar CSV</button>
+    </div>
+    <p id="msg"></p>
+    <div class="scroll">
+      <table>
+        <thead><tr>
+          <th>Nodo</th><th>DevEUI</th><th>JoinEUI</th><th>Tarjeta (DEVICEID)</th><th>Última prueba</th>
+          <th>Origen</th><th>Creado</th><th>Plataforma</th><th id="thCred" hidden></th>
+        </tr></thead>
+        <tbody id="rows"><tr><td colspan="9" class="empty">Cargando…</td></tr></tbody>
+      </table>
+    </div>
+    <p class="note">Toca un DevEUI, JoinEUI o DEVICEID para copiarlo. Los números siguen un consecutivo: la estación da a
+      cada tarjeta nueva el siguiente (el más alto + 1) y no reutiliza los que faltan. Fechas en la hora de este equipo.</p>
+  </section>
+</main>
+
+<dialog id="dlg">
+  <div class="dlg">
+    <h2 id="dTitle">Credenciales</h2>
+    <p class="meta" style="margin:0">Para dar de alta el nodo en la plataforma (OTAA). Consultarlas queda en el registro.</p>
+    <dl class="creds">
+      <dt>DevEUI</dt><dd id="dDev"></dd><button class="small" data-copy="dDev">Copiar</button>
+      <dt>JoinEUI</dt><dd id="dJoin"></dd><button class="small" data-copy="dJoin">Copiar</button>
+      <dt>AppKey</dt><dd id="dKey"></dd><button class="small" data-copy="dKey">Copiar</button>
+    </dl>
+    <div class="row">
+      <button id="dMark"></button>
+      <button id="dClose">Cerrar</button>
+    </div>
+  </div>
+</dialog>
+<div id="toast" role="status"></div>
+
+<script>
+const $ = id => document.getElementById(id);
+const pad3 = n => String(n).padStart(3, '0');
+const ME = { email: '', admin: false };
+let NODES = [];
+let current = null; // nodo abierto en el diálogo
+
+const SESSION_EXPIRED = 'La sesión de Cloudflare venció: recarga la página (F5) para volver a entrar y repite lo que estabas haciendo.';
+async function api(path, opts = {}) {
+  let r;
+  // redirect 'manual': con la sesión de Cloudflare Access vencida, Access redirige a su login y el navegador solo
+  // diría "Failed to fetch"
+  try {
+    r = await fetch('/api' + path, { credentials: 'same-origin', redirect: 'manual', ...opts, headers: { 'content-type': 'application/json' } });
+  } catch (e) {
+    throw new Error('no hubo respuesta del servidor (' + e.message + '). Revisa la conexión a internet; si sigue, ' +
+                    'recarga la página (F5): la sesión de Cloudflare puede haber vencido.');
+  }
+  if (r.type === 'opaqueredirect' || r.status === 0) throw new Error(SESSION_EXPIRED);
+  let data = null;
+  try { data = await r.json(); } catch (_) {}
+  if (!r.ok && !data && (r.status === 401 || r.status === 403)) throw new Error(SESSION_EXPIRED);
+  if (!r.ok) throw new Error((data && data.error) || ('Error ' + r.status));
+  return data;
+}
+
+// La base guarda UTC ("2026-11-19 14:05:00"): se muestra en la hora local
+function when(s) {
+  if (!s) return '';
+  const d = new Date(s.replace(' ', 'T') + 'Z');
+  if (isNaN(d)) return s;
+  const p = n => String(n).padStart(2, '0');
+  return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
+}
+const who = e => e ? String(e).split('@')[0] : '';
+const SOURCE = { tabla: 'Tabla del firmware', generador: 'Generador (PC)', estacion: 'Estación', manual: 'Manual' };
+
+function toast(t) {
+  $('toast').textContent = t; $('toast').classList.add('on');
+  clearTimeout(toast.t); toast.t = setTimeout(() => $('toast').classList.remove('on'), 1600);
+}
+async function copy(text, what) {
+  try { await navigator.clipboard.writeText(text); toast(what + ' copiado'); } catch (_) { toast('No se pudo copiar'); }
+}
+function msg(t, cls) { $('msg').textContent = t || ''; $('msg').className = cls || ''; }
+
+function el(tag, attrs = {}, ...kids) {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (k === 'class') e.className = v; else if (k.startsWith('on')) e.addEventListener(k.slice(2), v); else e.setAttribute(k, v);
+  }
+  for (const k of kids.flat(Infinity)) if (k != null && k !== false) e.append(k);
+  return e;
+}
+const hex = (v, what) => v ? el('span', { class: 'hex', title: 'Copiar', onclick: () => copy(v, what) }, v) : '—';
+
+function summary() {
+  const nums = NODES.map(n => n.node);
+  const max = nums.length ? Math.max(...nums) : 0;
+  $('tNext').textContent = 'NODO-' + pad3(max + 1);
+  $('tTotal').textContent = NODES.length;
+  // Huecos del consecutivo, en rangos: "1–2, 6–41"
+  const have = new Set(nums), gaps = [];
+  for (let i = 1; i < max; i++) {
+    if (have.has(i)) continue;
+    let j = i;
+    while (j + 1 < max && !have.has(j + 1)) j++;
+    gaps.push(i === j ? String(i) : i + '–' + j);
+    i = j;
+  }
+  $('tGaps').textContent = !max ? '' : gaps.length ? 'Números sin usar: ' + gaps.join(', ') : 'Del 1 al ' + max + ', sin huecos';
+  const boards = NODES.filter(n => n.device_id).length;
+  $('tBoards').textContent = boards;
+  $('tFree').textContent = (NODES.length - boards) + ' sin tarjeta';
+  const pend = NODES.filter(n => !n.platform_at).length;
+  $('tPend').textContent = pend;
+  $('tPendBox').classList.toggle('on', pend > 0);
+}
+
+function visible() {
+  const q = $('q').value.trim().toUpperCase().replace(/^NODO-?0*/, '');
+  const f = $('filter').value;
+  return NODES.filter(n => {
+    if (f === 'pending' && n.platform_at) return false;
+    if (f === 'board' && !n.device_id) return false;
+    if (f === 'noboard' && n.device_id) return false;
+    if (!q) return true;
+    return String(n.node) === q || pad3(n.node).includes(q) || (n.dev_eui || '').includes(q) || (n.device_id || '').includes(q);
+  });
+}
+
+function testTag(n) {
+  if (!n.last_test) return el('span', { class: 'sub' }, 'Sin pruebas');
+  const [step, res] = n.last_test.split(' ');
+  return [el('span', { class: 'tag ' + (res === 'OK' ? 'ok' : 'bad') }, (step === 'principal' ? 'Principal ' : 'Montaje ') + res),
+          el('span', { class: 'sub' }, when(n.last_test_at))];
+}
+
+function platformCell(n) {
+  const box = el('div', { class: 'plat' });
+  if (ME.admin) {
+    const cb = el('input', { type: 'checkbox', 'aria-label': 'Registrado en la plataforma' });
+    cb.checked = !!n.platform_at;
+    cb.addEventListener('change', () => setPlatform(n, cb.checked, cb));
+    box.append(cb);
+  }
+  box.append(n.platform_at ? el('span', { class: 'tag ok' }, 'Registrado') : el('span', { class: 'tag warn' }, 'Falta'));
+  const cell = [box];
+  if (n.platform_at) cell.push(el('span', { class: 'sub' }, when(n.platform_at) + (n.platform_by ? ' · ' + who(n.platform_by) : '')));
+  return cell;
+}
+
+function render() {
+  summary();
+  const tb = $('rows');
+  tb.innerHTML = '';
+  const list = visible();
+  if (!list.length) {
+    tb.append(el('tr', {}, el('td', { colspan: 9, class: 'empty' }, NODES.length ? 'Ningún nodo coincide.' : 'La base no tiene nodos.')));
+    return;
+  }
+  for (const n of list) {
+    tb.append(el('tr', {},
+      el('td', { class: 'node' }, 'NODO-' + pad3(n.node)),
+      el('td', {}, hex(n.dev_eui, 'DevEUI')),
+      el('td', {}, hex(n.join_eui, 'JoinEUI')),
+      el('td', {}, n.device_id ? [hex(n.device_id, 'DEVICEID'), el('span', { class: 'sub' }, when(n.assigned_at) + (n.assigned_by ? ' · ' + who(n.assigned_by) : ''))]
+                               : el('span', { class: 'tag' }, 'Sin tarjeta')),
+      el('td', {}, testTag(n)),
+      el('td', {}, n.source ? el('span', { class: 'tag ' + (n.source === 'estacion' ? 'info' : '') }, SOURCE[n.source] || n.source) : '—'),
+      el('td', {}, el('span', { class: 'sub' }, when(n.created_at)), n.created_by && /@/.test(n.created_by) ? el('span', { class: 'sub' }, who(n.created_by)) : null),
+      el('td', {}, platformCell(n)),
+      ME.admin ? el('td', {}, el('button', { class: 'small', onclick: () => openCreds(n) }, 'Credenciales')) : null,
+    ));
+  }
+}
+
+async function load() {
+  msg('');
+  try {
+    const me = await api('/me');
+    Object.assign(ME, me);
+    $('user').textContent = me.email + (me.admin ? ' (admin)' : '');
+    $('keysLbl').hidden = !me.admin;
+    $('thCred').hidden = !me.admin;
+    NODES = await api('/nodes');
+    render();
+  } catch (e) {
+    $('rows').innerHTML = '';
+    msg('No se pudo leer la base: ' + e.message, 'bad');
+  }
+}
+
+async function setPlatform(n, on, cb) {
+  if (cb) cb.disabled = true;
+  try {
+    await api('/nodes/' + n.node + '/platform', { method: 'POST', body: JSON.stringify({ registered: on }) });
+    toast('NODO-' + pad3(n.node) + (on ? ' marcado como registrado' : ' marcado como pendiente'));
+    NODES = await api('/nodes');
+    render();
+    if (current && current.node === n.node) {
+      current = NODES.find(x => x.node === n.node) || null;
+      markBtn();
+    }
+  } catch (e) {
+    msg(e.message, 'bad');
+    if (cb) { cb.checked = !on; cb.disabled = false; }
+  }
+}
+
+function markBtn() {
+  if (!current) return;
+  $('dMark').textContent = current.platform_at ? 'Marcar como pendiente' : 'Marcar como registrado en la plataforma';
+}
+
+async function openCreds(n) {
+  try {
+    const c = await api('/nodes/' + n.node + '/credentials');
+    current = n;
+    $('dTitle').textContent = 'NODO-' + pad3(n.node);
+    $('dDev').textContent = c.dev_eui; $('dJoin').textContent = c.join_eui; $('dKey').textContent = c.app_key;
+    markBtn();
+    $('dlg').showModal();
+  } catch (e) { msg(e.message, 'bad'); }
+}
+
+function csvCell(v) {
+  const s = v == null ? '' : String(v);
+  return /[";\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+async function downloadCsv() {
+  let list = visible();
+  const withKeys = ME.admin && $('keys').checked;
+  try {
+    if (withKeys) {
+      const all = await api('/nodes?keys=1');
+      const keys = new Map(all.map(x => [x.node, x.app_key]));
+      list = list.map(x => ({ ...x, app_key: keys.get(x.node) }));
+    }
+  } catch (e) { msg(e.message, 'bad'); return; }
+  const head = ['nodo', 'dev_eui', 'join_eui', ...(withKeys ? ['app_key'] : []), 'device_id', 'asignado', 'origen', 'creado',
+                'plataforma', 'ultima_prueba'];
+  const lines = [head.join(';')];
+  for (const n of list) {
+    lines.push([ 'NODO-' + pad3(n.node), n.dev_eui, n.join_eui, ...(withKeys ? [n.app_key] : []), n.device_id, when(n.assigned_at),
+                 SOURCE[n.source] || n.source, when(n.created_at), n.platform_at ? 'registrado ' + when(n.platform_at) : 'falta',
+                 n.last_test ? n.last_test + ' ' + when(n.last_test_at) : '' ].map(csvCell).join(';'));
+  }
+  // BOM: Excel reconoce los acentos; ";" para Excel en español
+  const blob = new Blob(['﻿' + lines.join('\r\n') + '\r\n'], { type: 'text/csv;charset=utf-8' });
+  const a = el('a', { href: URL.createObjectURL(blob), download: 'nodos_wearme' + (withKeys ? '_CON_APPKEY' : '') + '.csv' });
+  document.body.append(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  if (withKeys) toast('El archivo trae las AppKey: bórralo después de usarlo');
+}
+
+$('q').addEventListener('input', render);
+$('filter').addEventListener('change', render);
+$('btnReload').addEventListener('click', load);
+$('btnCsv').addEventListener('click', downloadCsv);
+$('dClose').addEventListener('click', () => { $('dlg').close(); current = null; });
+$('dlg').addEventListener('close', () => { $('dKey').textContent = ''; current = null; });
+$('dMark').addEventListener('click', () => current && setPlatform(current, !current.platform_at));
+for (const b of document.querySelectorAll('[data-copy]')) {
+  b.addEventListener('click', () => copy($(b.dataset.copy).textContent, b.previousElementSibling.previousElementSibling.textContent));
+}
+
+if (/^https?:$/.test(location.protocol)) load();
+else msg('Esta página funciona en la estación web (https), no abierta como archivo.', 'bad');
+</script>
+</body>
+</html>

@@ -1,0 +1,7 @@
+{
+  "name": "GNSS_lib",
+  "version": "1.0.0",
+  "description": "Pruebas del receptor GNSS del LR1110 (Wio Tracker 1110 / WM1110): escaneo autonomo GPS/BeiDou, satelites detectados, C/N0 y mensaje NAV. Requiere LBM_WM1110 del framework Seeed nRF52.",
+  "frameworks": "arduino",
+  "platforms": "nordicnrf52"
+}

@@ -1,0 +1,7 @@
+{
+  "name": "hw_lib",
+  "version": "1.0.0",
+  "description": "Drivers de la capa de hardware de la placa Wearme: expansor TCA6408A (I2C) y microSD por SPI (SdFat).",
+  "frameworks": "arduino",
+  "platforms": "nordicnrf52"
+}

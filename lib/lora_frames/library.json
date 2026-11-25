@@ -1,0 +1,7 @@
+{
+  "name": "lora_frames",
+  "version": "1.0.0",
+  "description": "Tramas LoRaWAN de la medicion WearMe (FPort 10 principal de 22 B, FPort 11 complementaria) y filas de PENDIENTES.csv.",
+  "frameworks": "arduino",
+  "platforms": "nordicnrf52"
+}

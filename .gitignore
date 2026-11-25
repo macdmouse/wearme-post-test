@@ -1,0 +1,21 @@
+.pio
+.cache
+compile_commands.json
+.vscode/*
+!.vscode/extensions.json
+# Claves LoRaWAN de los nodos
+include/wearme_credentials.h
+tools/DEVEUI_APPKEY_generator/*.db
+*.csv
+
+# Generados que traen el firmware principal (y con él las claves compiladas): no se versionan
+tools/estacion/
+estacion_web/public/firmware/
+
+# Cloudflare: estado local de wrangler y variables de prueba
+estacion_web/.wrangler/
+estacion_web/.dev.vars
+node_modules/
+
+# Caches de Python (tools/)
+__pycache__/

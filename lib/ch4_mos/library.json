@@ -1,0 +1,7 @@
+{
+  "name": "ch4_mos",
+  "version": "1.0.0",
+  "description": "CH4 con un sensor MOS (Winsen GM-402B) como Rs/R0: resistencia del sensor, compensacion T/HR, linea base R0 dinamica, deteccion de calentamiento y ppm por curva configurable. Sin hardware ni flash.",
+  "frameworks": "arduino",
+  "platforms": "nordicnrf52"
+}

@@ -1,0 +1,2543 @@
+<!doctype html>
+<html lang="es" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Estación Wearme</title>
+<!--
+  Diagnóstico Wearme: interfaz para el firmware Wearme_POST_Test.
+  Uso: doble clic en este archivo (se abre en Edge o Chrome), conectar la placa por USB y pulsar "Conectar".
+  Lee por el puerto serie (Web Serial, 115200) lo mismo que muestra el monitor de PlatformIO: las líneas [POST],
+  la tabla [TABLA] y la línea [VIVO]. No necesita instalar nada ni conexión a internet.
+  Si cambian los textos del firmware (post_lib.cpp / main.cpp), revisar el bloque PARSER de abajo.
+-->
+<style>
+  /* Colores de iÓmicas (azul marino del logo) + estados. Claro / oscuro */
+  :root {
+    --brand: #183c6c; --brand-2: #22558f; --brand-ink: #ffffff; --brand-soft: #e7eef8;
+    --bg: #eef2f7; --panel: #ffffff; --ink: #142033; --muted: #5a6880; --line: #dbe2ec;
+    --ok: #1b8a4c; --ok-bg: #e5f5eb; --bad: #c62f36; --bad-bg: #fdeced;
+    --warn: #a35f00; --warn-bg: #fff3d9; --info: #1d5bb8; --info-bg: #e8f0fc;
+    --none: #7b879a; --none-bg: #eef1f5; --accent: #1d4f91; --on-accent: #ffffff;
+    --shadow: 0 1px 2px rgba(20, 40, 80, .06), 0 4px 14px rgba(20, 40, 80, .05);
+    --radius: 14px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --brand: #11294b; --brand-2: #1a3d6b; --brand-soft: #1a2a45;
+      --bg: #0f141c; --panel: #171e29; --ink: #e6ebf3; --muted: #97a3b6; --line: #273142;
+      --ok: #5ccb8c; --ok-bg: #15301f; --bad: #ff7d82; --bad-bg: #3a1b20;
+      --warn: #f1b654; --warn-bg: #3a2c12; --info: #82b3ff; --info-bg: #182a47;
+      --none: #8a95a8; --none-bg: #212938; --accent: #6fa3f2; --on-accent: #0b1424; --shadow: none;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 15px/1.45 "Segoe UI", system-ui, -apple-system, Roboto, sans-serif; }
+
+  /* Íconos (sprite SVG al inicio del body) */
+  .ic { width: 18px; height: 18px; flex: none; fill: none; stroke: currentColor; stroke-width: 2;
+        stroke-linecap: round; stroke-linejoin: round; vertical-align: middle; }
+
+  /* Encabezado con el logo */
+  header { background: linear-gradient(120deg, var(--brand), var(--brand-2)); color: var(--brand-ink);
+           padding: 10px 20px; display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: center;
+           box-shadow: 0 2px 10px rgba(10, 30, 60, .25); position: sticky; top: 0; z-index: 5; }
+  .brand { display: flex; align-items: center; gap: 14px; margin-right: auto; min-width: 0; }
+  .brand .logo { height: 40px; width: auto; display: block; }
+  .brand .sep { width: 1px; align-self: stretch; background: rgba(255, 255, 255, .3); }
+  .brand .bt { display: grid; line-height: 1.2; min-width: 0; }
+  header h1 { font-size: 18px; margin: 0; font-weight: 650; letter-spacing: .01em; }
+  .brand .bt small { font-size: 12px; opacity: .75; }
+  header .meta { color: rgba(255, 255, 255, .82); font-size: 13px; }
+  header button, header a.btnlink { background: rgba(255, 255, 255, .1); border-color: rgba(255, 255, 255, .28);
+           color: #fff; }
+  header button:hover:not(:disabled), header a.btnlink:hover { background: rgba(255, 255, 255, .2); border-color: #fff; }
+  header button.primary { background: #fff; border-color: #fff; color: var(--brand); }
+  header button.primary:hover:not(:disabled) { background: #e8f0fb; }
+  @media (max-width: 760px) { .brand .sep, .brand .bt small { display: none; } .brand .logo { height: 30px; } }
+
+  .meta { color: var(--muted); font-size: 13px; }
+  .pill { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 99px;
+          font-size: 13px; font-weight: 600; background: var(--none-bg); color: var(--none); }
+  .pill::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+  .pill.ok { background: var(--ok-bg); color: var(--ok); }
+  .pill.bad { background: var(--bad-bg); color: var(--bad); }
+  .pill.warn { background: var(--warn-bg); color: var(--warn); }
+  header .pill { background: rgba(255, 255, 255, .14); color: #fff; }
+  header .pill.ok { background: #e5f5eb; color: #1b7a44; }
+  header .pill.bad { background: #fdeced; color: #b3262d; }
+  header .pill.warn { background: #fff3d9; color: #8a5100; }
+
+  /* Botones (con ícono por ::before en los que tienen --ic) */
+  button { font: inherit; border: 1px solid var(--line); background: var(--panel); color: var(--ink);
+           padding: 7px 14px; border-radius: 10px; cursor: pointer; display: inline-flex; align-items: center;
+           gap: 7px; transition: background .15s, border-color .15s, box-shadow .15s; }
+  button:hover:not(:disabled) { border-color: var(--accent); }
+  button:disabled { opacity: .5; cursor: default; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 600;
+                   box-shadow: 0 2px 6px rgba(29, 79, 145, .25); }
+  button.primary:hover:not(:disabled) { filter: brightness(1.08); }
+  button[hidden], a[hidden] { display: none !important; }
+  a.btnlink { border: 1px solid var(--line); background: var(--panel); color: var(--ink); padding: 7px 14px;
+              border-radius: 10px; text-decoration: none; display: inline-flex; align-items: center; gap: 7px; }
+  a.btnlink:hover { border-color: var(--accent); }
+  .linkbtn { border: 0; background: none; color: var(--accent); padding: 0; text-decoration: underline; font-size: 13px; }
+  #btnConnect::before { content: ""; width: 17px; height: 17px; flex: none; background: currentColor; -webkit-mask: url('data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"%3E%3Cpath d="M9 2v6M15 2v6"/%3E%3Cpath d="M6 8h12v3a6 6 0 0 1-12 0z"/%3E%3Cpath d="M12 17v5"/%3E%3C/svg%3E') center / contain no-repeat; mask: url('data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"%3E%3Cpath d="M9 2v6M15 2v6"/%3E%3Cpath d="M6 8h12v3a6 6 0 0 1-12 0z"/%3E%3Cpath d="M12 17v5"/%3E%3C/svg%3E') center / contain no-repeat; }
+  #btnDemo::before { content: ""; width: 17px; height: 17px; flex: none; background: currentColor; -webkit-mask: url('data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"%3E%3Cpath d="M7 4l13 8-13 8z"/%3E%3C/svg%3E') center / contain no-repeat; mask: url('data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"%3E%3Cpath d="M7 4l13 8-13 8z"/%3E%3C/svg%3E') center / contain no-repeat; }
+  #btnGuide::before { content: ""; width: 17px; height: 17px; flex: none; background: currentColor; -webkit-mask: url('data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"%3E%3Cpath d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20V3H6.5A2.5 2.5 0 0 0 4 5.5z"/%3E%3Cpath d="M4 19.5A2.5 2.5 0 0 0 6.5 22H20v-5"/%3E%3C/svg%3E') center / contain no-repeat; mask: url('data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"%3E%3Cpath d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20V3H6.5A2.5 2.5 0 0 0 4 5.5z"/%3E%3Cpath d="M4 19.5A2.5 2.5 0 0 0 6.5 22H20v-5"/%3E%3C/svg%3E') center / contain no-repeat; }
+  #btnSuper::before { content: ""; width: 17px; height: 17px; flex: none; background: currentColor; -webkit-mask: url('data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"%3E%3Cpath d="M12 2l8 3v6c0 5-3.5 9-8 11-4.5-2-8-6-8-11V5z"/%3E%3Cpath d="M9 12l2 2 4-4"/%3E%3C/svg%3E') center / contain no-repeat; mask: url('data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"%3E%3Cpath d="M12 2l8 3v6c0 5-3.5 9-8 11-4.5-2-8-6-8-11V5z"/%3E%3Cpath d="M9 12l2 2 4-4"/%3E%3C/svg%3E') center / contain no-repeat; }
+  #lnkNodes::before { content: ""; width: 17px; height: 17px; flex: none; background: currentColor; -webkit-mask: url('data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"%3E%3Cpath d="M9 6h12M9 12h12M9 18h12"/%3E%3Cpath d="M4 6h.01M4 12h.01M4 18h.01"/%3E%3C/svg%3E') center / contain no-repeat; mask: url('data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"%3E%3Cpath d="M9 6h12M9 12h12M9 18h12"/%3E%3Cpath d="M4 6h.01M4 12h.01M4 18h.01"/%3E%3C/svg%3E') center / contain no-repeat; }
+  #btnAll::before { content: ""; width: 17px; height: 17px; flex: none; background: currentColor; -webkit-mask: url('data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"%3E%3Cpath d="M21 12a9 9 0 1 1-3-6.7L21 8"/%3E%3Cpath d="M21 3v5h-5"/%3E%3C/svg%3E') center / contain no-repeat; mask: url('data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"%3E%3Cpath d="M21 12a9 9 0 1 1-3-6.7L21 8"/%3E%3Cpath d="M21 3v5h-5"/%3E%3C/svg%3E') center / contain no-repeat; }
+  #btnStart::before { content: ""; width: 17px; height: 17px; flex: none; background: currentColor; -webkit-mask: url('data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"%3E%3Cpath d="M7 4l13 8-13 8z"/%3E%3C/svg%3E') center / contain no-repeat; mask: url('data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"%3E%3Cpath d="M7 4l13 8-13 8z"/%3E%3C/svg%3E') center / contain no-repeat; }
+  #btnCancel::before { content: ""; width: 17px; height: 17px; flex: none; background: currentColor; -webkit-mask: url('data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"%3E%3Crect x="5" y="5" width="14" height="14" rx="2"/%3E%3C/svg%3E') center / contain no-repeat; mask: url('data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"%3E%3Crect x="5" y="5" width="14" height="14" rx="2"/%3E%3C/svg%3E') center / contain no-repeat; }
+  #btnContinue::before { content: ""; width: 17px; height: 17px; flex: none; background: currentColor; -webkit-mask: url('data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"%3E%3Cpath d="M5 12h14M13 6l6 6-6 6"/%3E%3C/svg%3E') center / contain no-repeat; mask: url('data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"%3E%3Cpath d="M5 12h14M13 6l6 6-6 6"/%3E%3C/svg%3E') center / contain no-repeat; }
+  #btnOnlyPost::before { content: ""; width: 17px; height: 17px; flex: none; background: currentColor; -webkit-mask: url('data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"%3E%3Cpath d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/%3E%3C/svg%3E') center / contain no-repeat; mask: url('data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"%3E%3Cpath d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/%3E%3C/svg%3E') center / contain no-repeat; }
+  #btnOnlyMain::before { content: ""; width: 17px; height: 17px; flex: none; background: currentColor; -webkit-mask: url('data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"%3E%3Cpath d="M21 8l-9-5-9 5v8l9 5 9-5z"/%3E%3Cpath d="M3 8l9 5 9-5M12 13v8"/%3E%3C/svg%3E') center / contain no-repeat; mask: url('data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"%3E%3Cpath d="M21 8l-9-5-9 5v8l9 5 9-5z"/%3E%3Cpath d="M3 8l9 5 9-5M12 13v8"/%3E%3C/svg%3E') center / contain no-repeat; }
+  #btnOnlyTest::before { content: ""; width: 17px; height: 17px; flex: none; background: currentColor; -webkit-mask: url('data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"%3E%3Cpath d="M9 3h6M10 3v6L4.5 18.5A2 2 0 0 0 6.2 21.5h11.6a2 2 0 0 0 1.7-3L14 9V3"/%3E%3Cpath d="M7 15h10"/%3E%3C/svg%3E') center / contain no-repeat; mask: url('data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"%3E%3Cpath d="M9 3h6M10 3v6L4.5 18.5A2 2 0 0 0 6.2 21.5h11.6a2 2 0 0 0 1.7-3L14 9V3"/%3E%3Cpath d="M7 15h10"/%3E%3C/svg%3E') center / contain no-repeat; }
+  #btnIdChange::before { content: ""; width: 17px; height: 17px; flex: none; background: currentColor; -webkit-mask: url('data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"%3E%3Ccircle cx="8" cy="15" r="4"/%3E%3Cpath d="M10.8 12.2L21 2M17 6l3 3M15 8l2 2"/%3E%3C/svg%3E') center / contain no-repeat; mask: url('data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"%3E%3Ccircle cx="8" cy="15" r="4"/%3E%3Cpath d="M10.8 12.2L21 2M17 6l3 3M15 8l2 2"/%3E%3C/svg%3E') center / contain no-repeat; }
+  #fwUpload::before { content: ""; width: 17px; height: 17px; flex: none; background: currentColor; -webkit-mask: url('data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"%3E%3Cpath d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/%3E%3C/svg%3E') center / contain no-repeat; mask: url('data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"%3E%3Cpath d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/%3E%3C/svg%3E') center / contain no-repeat; }
+
+  main { max-width: 1280px; margin: 0 auto; padding: 18px; display: grid; gap: 18px;
+         grid-template-columns: minmax(0, 1fr) 340px; align-items: start; }
+  @media (max-width: 1050px) { main { grid-template-columns: minmax(0, 1fr); } }
+  .col { display: grid; gap: 18px; min-width: 0; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px 18px;
+           box-shadow: var(--shadow); min-width: 0; }
+  .panel h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted);
+              margin: 0 0 12px; display: flex; align-items: center; gap: 8px; }
+  .panel h2 .ic { width: 20px; height: 20px; padding: 3px; box-sizing: content-box; border-radius: 8px;
+                  background: var(--brand-soft); color: var(--accent); }
+
+  /* Veredicto: ícono grande según el estado */
+  #verdict { border-radius: var(--radius); padding: 18px 20px; border: 1px solid var(--line); background: var(--panel);
+             box-shadow: var(--shadow); }
+  #verdict .vrow { display: flex; gap: 16px; align-items: center; }
+  #verdict .vic { width: 56px; height: 56px; border-radius: 50%; display: grid; place-items: center; flex: none;
+                  background: var(--none-bg); color: var(--none); }
+  #verdict .vic .ic { width: 30px; height: 30px; display: none; stroke-width: 2.2; }
+  #verdict .vic .v-none { display: block; }
+  #verdict.ok .vic .v-none, #verdict.bad .vic .v-none, #verdict.warn .vic .v-none, #verdict.info .vic .v-none { display: none; }
+  #verdict.ok .vic .v-ok, #verdict.bad .vic .v-bad, #verdict.warn .vic .v-warn, #verdict.info .vic .v-info { display: block; }
+  #verdict.info .vic .v-info { animation: spin 1.1s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  #verdict .big { font-size: 24px; font-weight: 700; margin: 0 0 2px; line-height: 1.2; }
+  #verdict .sub { margin: 0; color: var(--ink); opacity: .85; }
+  #verdict.ok { background: var(--ok-bg); border-color: transparent; } #verdict.ok .big { color: var(--ok); }
+  #verdict.ok .vic { background: var(--ok); color: #fff; }
+  #verdict.bad { background: var(--bad-bg); border-color: transparent; } #verdict.bad .big { color: var(--bad); }
+  #verdict.bad .vic { background: var(--bad); color: #fff; }
+  #verdict.warn { background: var(--warn-bg); border-color: transparent; } #verdict.warn .big { color: var(--warn); }
+  #verdict.warn .vic { background: var(--warn); color: #fff; }
+  #verdict.info { background: var(--info-bg); border-color: transparent; } #verdict.info .big { color: var(--info); }
+  #verdict.info .vic { background: var(--info); color: #fff; }
+  .progress { height: 8px; border-radius: 99px; background: var(--none-bg); margin-top: 12px; overflow: hidden; }
+  #verdict .progress { background: rgba(255, 255, 255, .6); }
+  .progress > div { height: 100%; background: linear-gradient(90deg, var(--info), var(--accent)); width: 0; transition: width .3s; }
+  .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+
+  /* Tarjetas de subsistemas: ícono a la izquierda, color según el estado */
+  #groups { display: grid; gap: 10px; }
+  .group { display: grid; grid-template-columns: 120px repeat(5, minmax(0, 1fr)); gap: 8px; align-items: stretch;
+           padding-top: 10px; border-top: 1px solid var(--line); }
+  .group:first-child { padding-top: 0; border-top: 0; }
+  .group h3 { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 0;
+              align-self: center; line-height: 1.3; overflow-wrap: anywhere; }
+  /* Fila de arriba: ícono + estado; abajo, a todo el ancho: nombre, chip y última prueba */
+  .card { text-align: left; border: 1px solid var(--line); border-radius: 12px; padding: 9px 10px 8px;
+          background: var(--panel); display: grid; grid-template-columns: auto minmax(0, 1fr);
+          grid-auto-rows: min-content; column-gap: 8px; row-gap: 2px; align-items: center; width: 100%; min-width: 0; }
+  .card:hover:not(:disabled) { box-shadow: var(--shadow); transform: translateY(-1px); }
+  .card .ci { grid-row: 1; grid-column: 1; width: 32px; height: 32px; border-radius: 10px; display: grid;
+              place-items: center; background: var(--none-bg); color: var(--none); }
+  .card .ci .ic { width: 18px; height: 18px; }
+  .card .s { grid-row: 1; grid-column: 2; justify-self: end; font-size: 10.5px; font-weight: 700; letter-spacing: .03em;
+             padding: 2px 8px; border-radius: 99px; background: var(--none-bg); white-space: nowrap; max-width: 100%;
+             overflow: hidden; text-overflow: ellipsis; }
+  .card .t { grid-column: 1 / -1; font-weight: 600; font-size: 13px; line-height: 1.25; margin-top: 6px; }
+  .card .c { grid-column: 1 / -1; font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .card .h { grid-column: 1 / -1; font-size: 11px; color: var(--muted); font-weight: 400; letter-spacing: 0; }
+  @media (max-width: 760px) {
+    .group { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .group h3 { grid-column: 1 / -1; }
+  }
+  .card.OK .ci { background: var(--ok-bg); color: var(--ok); } .card.OK .s { color: var(--ok); background: var(--ok-bg); }
+  .card.FAIL, .card.SIM { background: var(--bad-bg); border-color: transparent; }
+  .card.FAIL .ci, .card.SIM .ci { background: var(--bad); color: #fff; }
+  .card.FAIL .s, .card.SIM .s { color: #fff; background: var(--bad); }
+  .card.TOL .ci { background: var(--warn-bg); color: var(--warn); } .card.TOL .s { color: var(--warn); background: var(--warn-bg); }
+  .card.RUN { background: var(--info-bg); border-color: transparent; }
+  .card.RUN .ci { background: var(--info); color: #fff; } .card.RUN .s { color: #fff; background: var(--info); }
+  .card.SKIP .s, .card.NONE .s { color: var(--none); }
+  @keyframes pulse { 50% { opacity: .55; } } .card.RUN .ci { animation: pulse 1.2s ease-in-out infinite; }
+
+  /* Orden de revisión */
+  ol.review { margin: 0; padding-left: 20px; display: grid; gap: 10px; }
+  ol.review li b { color: var(--bad); } ol.review li b.tol { color: var(--warn); }
+  ol.review .hint { font-size: 13px; color: var(--muted); }
+  /* Micro */
+  .micro { display: grid; gap: 8px; }
+  .mrow { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; padding: 9px 11px; border-radius: 10px;
+          background: var(--none-bg); border-left: 4px solid var(--line); }
+  .mrow .v { font-weight: 600; font-variant-numeric: tabular-nums; }
+  .mrow .n { font-size: 13px; font-weight: 600; }
+  .mrow .x { grid-column: 1 / -1; font-size: 12px; color: var(--muted); }
+  .mrow.ok { background: var(--ok-bg); border-left-color: var(--ok); } .mrow.ok .v { color: var(--ok); }
+  .mrow.bad { background: var(--warn-bg); border-left-color: var(--warn); } .mrow.bad .v { color: var(--warn); }
+  /* Eventos y consola */
+  #events { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; max-height: 280px; overflow: auto;
+            font-size: 13px; }
+  #events li { display: grid; grid-template-columns: auto 1fr; gap: 8px; padding-bottom: 6px; border-bottom: 1px dashed var(--line); }
+  #events li:last-child { border-bottom: 0; }
+  #events time { color: var(--muted); font-variant-numeric: tabular-nums; }
+  #events .bad { color: var(--bad); } #events .ok { color: var(--ok); } #events .warn { color: var(--warn); }
+  details.console summary { cursor: pointer; color: var(--muted); font-size: 13px; display: flex; align-items: center; gap: 8px; }
+  #raw { background: #0c1220; color: #cfd6e2; border-radius: 10px; padding: 10px; height: 320px; overflow: auto;
+         font: 12px/1.4 ui-monospace, Consolas, monospace; white-space: pre; margin: 10px 0 8px; }
+  #raw .tx { color: #7fb0ff; }
+  .sendrow { display: flex; gap: 8px; }
+  .sendrow input { flex: 1; min-width: 0; font: 13px ui-monospace, Consolas, monospace; padding: 7px 10px;
+                   border: 1px solid var(--line); border-radius: 10px; background: var(--panel); color: var(--ink); }
+  /* Diálogos */
+  dialog { border: 1px solid var(--line); border-radius: 16px; padding: 0; width: min(640px, calc(100vw - 32px));
+           background: var(--panel); color: var(--ink); box-shadow: 0 20px 60px rgba(10, 20, 40, .35); }
+  dialog::backdrop { background: rgba(10, 20, 40, .5); backdrop-filter: blur(2px); }
+  .dlg { padding: 20px 22px; display: grid; gap: 12px; }
+  .dlg h2 { margin: 0; font-size: 20px; }
+  .dlg h4 { margin: 0 0 4px; font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+  .dlg ol { margin: 0; padding-left: 20px; display: grid; gap: 4px; }
+  .dlg pre { margin: 0; background: var(--none-bg); border-radius: 10px; padding: 10px; font-size: 12px;
+             white-space: pre-wrap; max-height: 200px; overflow: auto; }
+  .muted { color: var(--muted); }
+  /* Estación de montaje */
+  #station { border-top: 4px solid var(--accent); }
+  #station .steps { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-bottom: 14px;
+                    counter-reset: paso; }
+  @media (max-width: 760px) { #station .steps { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  .step { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; font-size: 13px; background: var(--none-bg);
+          color: var(--muted); display: flex; gap: 10px; align-items: center; font-weight: 600; line-height: 1.25; }
+  .step b { display: inline-grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; flex: none;
+            background: var(--panel); color: var(--muted); box-shadow: inset 0 0 0 1px var(--line); }
+  .step b .ic { width: 16px; height: 16px; }
+  .step b .ic.done { display: none; }
+  .step.doing { background: var(--info-bg); color: var(--info); border-color: transparent; }
+  .step.doing b { background: var(--info); color: #fff; box-shadow: none; animation: pulse 1.2s ease-in-out infinite; }
+  .step.done { background: var(--ok-bg); color: var(--ok); border-color: transparent; }
+  .step.done b { background: var(--ok); color: #fff; box-shadow: none; }
+  .step.done b .ic { display: none; } .step.done b .ic.done { display: block; }
+  .step.fail { background: var(--bad-bg); color: var(--bad); border-color: transparent; }
+  .step.fail b { background: var(--bad); color: #fff; box-shadow: none; }
+  .strow { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; }
+  .strow label { font-size: 14px; display: flex; gap: 8px; align-items: center; }
+  .strow select, .actions select { font: inherit; padding: 7px 10px; border-radius: 10px; border: 1px solid var(--line);
+                  background: var(--panel); color: var(--ink); }
+  #stMsg { margin: 12px 0 0; font-weight: 600; }
+  #stMsg.ok { color: var(--ok); } #stMsg.bad { color: var(--bad); } #stMsg.warn { color: var(--warn); } #stMsg.info { color: var(--info); }
+  #station details { margin-top: 12px; font-size: 13px; color: var(--muted); border-top: 1px solid var(--line); padding-top: 10px; }
+  .nofw { border-radius: 12px; padding: 12px 14px; background: var(--warn-bg); color: var(--ink); margin-bottom: 12px; }
+  .nofw b { color: var(--warn); }
+  .nofw code, .guide code { background: var(--none-bg); padding: 1px 5px; border-radius: 4px; font-size: 13px; }
+  /* Identidad */
+  .idlist { display: grid; grid-template-columns: auto 1fr; gap: 6px 12px; margin: 0 0 10px; font-size: 14px; }
+  .idlist dt { color: var(--muted); }
+  .idlist dd { margin: 0; font-family: ui-monospace, Consolas, monospace; font-size: 13px; overflow-wrap: anywhere; }
+  .box { border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; }
+  .form { display: grid; gap: 8px; margin: 8px 0 10px; }
+  .form label { display: grid; gap: 3px; font-size: 13px; color: var(--muted); }
+  .form input, .strow input { font: 13px ui-monospace, Consolas, monospace; padding: 7px 9px; border: 1px solid var(--line);
+                border-radius: 10px; background: var(--panel); color: var(--ink); min-width: 0; }
+  .form input.bad { border-color: var(--bad); }
+  #idMsg { margin: 0; font-weight: 600; }
+  #idMsg.ok { color: var(--ok); } #idMsg.bad { color: var(--bad); } #idMsg.info { color: var(--info); } #idMsg.warn { color: var(--warn); }
+  /* Guía */
+  dialog.guide { width: min(860px, calc(100vw - 32px)); max-height: calc(100vh - 32px); }
+  .guide .dlg { gap: 4px; }
+  .guide h2 { font-size: 22px; }
+  .guide h3 { font-size: 16px; margin: 16px 0 4px; }
+  .guide p, .guide li { line-height: 1.5; }
+  .guide ol, .guide ul { margin: 4px 0; padding-left: 22px; display: grid; gap: 4px; }
+  .guide .toc { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 4px; }
+  .guide .toc a { font-size: 13px; padding: 3px 10px; border-radius: 99px; background: var(--none-bg); color: var(--ink);
+                  text-decoration: none; }
+  .guide .legend { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 6px; margin: 6px 0; }
+  .guide .legend span { border-left: 4px solid; padding: 4px 8px; border-radius: 6px; font-size: 13px; background: var(--none-bg); }
+  .guide .faq dt { font-weight: 600; margin-top: 8px; }
+  .guide .faq dd { margin: 2px 0 0; }
+  .guide .close { position: sticky; bottom: 0; background: var(--panel); padding-top: 10px; }
+  #station details summary { cursor: pointer; font-weight: 600; color: var(--ink); }
+  .note { font-size: 13px; color: var(--muted); margin: 8px 0 0; }
+  .fwlist { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+  .fwlist li { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between;
+               border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; }
+  .fwlist li.on { border-color: var(--ok); }
+  .fwlist .fwtxt { flex: 1 1 260px; min-width: 0; overflow-wrap: anywhere; }
+  .fwlist .fwbtn { display: flex; gap: 6px; }
+  footer.brandfoot { max-width: 1280px; margin: 0 auto; padding: 4px 18px 22px; color: var(--muted); font-size: 12px;
+                     display: flex; gap: 8px; align-items: center; }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs><symbol id="i-plug" viewBox="0 0 24 24"><path d="M9 2v6M15 2v6"/><path d="M6 8h12v3a6 6 0 0 1-12 0z"/><path d="M12 17v5"/></symbol><symbol id="i-book" viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20V3H6.5A2.5 2.5 0 0 0 4 5.5z"/><path d="M4 19.5A2.5 2.5 0 0 0 6.5 22H20v-5"/></symbol><symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 2l8 3v6c0 5-3.5 9-8 11-4.5-2-8-6-8-11V5z"/><path d="M9 12l2 2 4-4"/></symbol><symbol id="i-list" viewBox="0 0 24 24"><path d="M9 6h12M9 12h12M9 18h12"/><path d="M4 6h.01M4 12h.01M4 18h.01"/></symbol><symbol id="i-play" viewBox="0 0 24 24"><path d="M7 4l13 8-13 8z"/></symbol><symbol id="i-stop" viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="14" rx="2"/></symbol><symbol id="i-chip" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/><path d="M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4"/></symbol><symbol id="i-bus" viewBox="0 0 24 24"><circle cx="5" cy="12" r="2"/><circle cx="19" cy="5" r="2"/><circle cx="19" cy="19" r="2"/><path d="M7 12h5M12 5v14M12 5h5M12 19h5"/></symbol><symbol id="i-toggle" viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="10" rx="5"/><circle cx="16" cy="12" r="2.5"/></symbol><symbol id="i-power" viewBox="0 0 24 24"><path d="M12 2v9"/><path d="M18.4 6.6a9 9 0 1 1-12.8 0"/></symbol><symbol id="i-timer" viewBox="0 0 24 24"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 2M9 2h6"/></symbol><symbol id="i-battery" viewBox="0 0 24 24"><rect x="2" y="7" width="17" height="10" rx="2"/><path d="M22 11v2M6 10v4M10 10v4"/></symbol><symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol><symbol id="i-sd" viewBox="0 0 24 24"><path d="M8 2h9a2 2 0 0 1 2 2v16a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5z"/><path d="M10 6v3M13 6v3M16 6v3"/></symbol><symbol id="i-move" viewBox="0 0 24 24"><path d="M12 2v20M2 12h20"/><path d="M9 5l3-3 3 3M9 19l3 3 3-3M5 9l-3 3 3 3M19 9l3 3-3 3"/></symbol><symbol id="i-thermo" viewBox="0 0 24 24"><path d="M14 14.8V4a2 2 0 0 0-4 0v10.8a4 4 0 1 0 4 0z"/><path d="M12 9v7"/></symbol><symbol id="i-flame" viewBox="0 0 24 24"><path d="M12 22c4 0 7-3 7-7 0-4-3-6-4-10-2 2-3 4-3 6-1-1-2-2-2-4-3 3-5 5-5 8 0 4 3 7 7 7z"/></symbol><symbol id="i-pin" viewBox="0 0 24 24"><path d="M12 22s7-6.5 7-12a7 7 0 0 0-14 0c0 5.5 7 12 7 12z"/><circle cx="12" cy="10" r="2.5"/></symbol><symbol id="i-wind" viewBox="0 0 24 24"><path d="M3 8h10a3 3 0 1 0-3-3M3 12h15a3 3 0 1 1-3 3M3 16h6"/></symbol><symbol id="i-fan" viewBox="0 0 24 24"><circle cx="12" cy="12" r="1.8"/><path d="M12 10.2C12 6 13 3 16 3c2 0 3 2 2 4s-4 3.2-6 3.2zM13.8 12c4.2 0 7.2 1 7.2 4 0 2-2 3-4 2s-3.2-4-3.2-6zM12 13.8c0 4.2-1 7.2-4 7.2-2 0-3-2-2-4s4-3.2 6-3.2zM10.2 12C6 12 3 11 3 8c0-2 2-3 4-2s3.2 4 3.2 6z"/></symbol><symbol id="i-radio" viewBox="0 0 24 24"><circle cx="12" cy="12" r="2"/><path d="M16.2 7.8a6 6 0 0 1 0 8.4M7.8 16.2a6 6 0 0 1 0-8.4M19.1 4.9a10 10 0 0 1 0 14.2M4.9 19.1a10 10 0 0 1 0-14.2"/></symbol><symbol id="i-bt" viewBox="0 0 24 24"><path d="M7 7l10 10-5 5V2l5 5L7 17"/></symbol><symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></symbol><symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></symbol><symbol id="i-alert" viewBox="0 0 24 24"><path d="M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></symbol><symbol id="i-loader" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-6.2-8.6"/></symbol><symbol id="i-upload" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/></symbol><symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></symbol><symbol id="i-tag" viewBox="0 0 24 24"><path d="M20.6 13.4l-7.2 7.2a2 2 0 0 1-2.8 0L2 12V2h10l8.6 8.6a2 2 0 0 1 0 2.8z"/><path d="M7 7h.01"/></symbol><symbol id="i-package" viewBox="0 0 24 24"><path d="M21 8l-9-5-9 5v8l9 5 9-5z"/><path d="M3 8l9 5 9-5M12 13v8"/></symbol><symbol id="i-terminal" viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M6 9l3 3-3 3M12 15h6"/></symbol><symbol id="i-key" viewBox="0 0 24 24"><circle cx="8" cy="15" r="4"/><path d="M10.8 12.2L21 2M17 6l3 3M15 8l2 2"/></symbol><symbol id="i-history" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5M12 7v5l3 2"/></symbol><symbol id="i-listcheck" viewBox="0 0 24 24"><path d="M3 6l2 2 3-3M3 13l2 2 3-3M11 7h10M11 14h10M11 20h10"/></symbol><symbol id="i-grid" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></symbol><symbol id="i-refresh" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></symbol><symbol id="i-wrench" viewBox="0 0 24 24"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.5 2.5-2.5-2.5z"/></symbol><symbol id="i-flask" viewBox="0 0 24 24"><path d="M9 3h6M10 3v6L4.5 18.5A2 2 0 0 0 6.2 21.5h11.6a2 2 0 0 0 1.7-3L14 9V3"/><path d="M7 15h10"/></symbol><symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></symbol><symbol id="i-send" viewBox="0 0 24 24"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4z"/></symbol></defs></svg>
+<header>
+  <div class="brand">
+    <img class="logo" alt="iÓmicas" src="data:image/png;base64,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">
+    <span class="sep"></span>
+    <div class="bt"><h1>Estación de montaje Wearme</h1><small>WearMe · montaje y pruebas</small></div>
+  </div>
+  <span id="conn" class="pill">Desconectado</span>
+  <span id="operator" class="meta"></span>
+  <span id="devinfo" class="meta"></span>
+  <a id="lnkNodes" class="btnlink" href="nodos.html" target="_blank" hidden title="Todos los nodos registrados: DevEUI, tarjeta, siguiente número y cuáles faltan en la plataforma">Nodos registrados</a>
+  <button id="btnSuper" hidden title="Modo superusuario (administradores): cambiar el firmware principal que carga la estación">Superusuario</button>
+  <button id="btnGuide" title="Cómo usar esta página, paso a paso">Guía de uso</button>
+  <button id="btnConnect" class="primary">Conectar placa</button>
+  <button id="btnDemo" title="Simula una placa para practicar sin hardware. No usa la tarjeta conectada.">Ver ejemplo</button>
+</header>
+
+<main>
+  <div class="col">
+    <section class="panel" id="station">
+      <h2><svg class="ic" aria-hidden="true"><use href="#i-wrench"/></svg>Estación de montaje</h2>
+      <div class="nofw" id="noFw" hidden>
+        <b>Esta es la página de diagnóstico: no trae los firmwares, por eso no puede cargar.</b><br>
+        Para cargar firmware abre <code>tools/estacion/Estacion_Wearme.html</code>. Si no existe o es vieja, genérala en
+        el computador de desarrollo con <code>python tools/build_estacion.py</code>. Aquí sí puedes probar el montaje,
+        repetir pruebas y cambiar el nodo o las credenciales.
+      </div>
+      <div class="steps">
+        <div class="step" id="st0"><b><svg class="ic" aria-hidden="true"><use href="#i-upload"/></svg><svg class="ic done" aria-hidden="true"><use href="#i-check"/></svg></b><span>1. Cargar firmware de prueba</span></div>
+        <div class="step" id="st1"><b><svg class="ic" aria-hidden="true"><use href="#i-search"/></svg><svg class="ic done" aria-hidden="true"><use href="#i-check"/></svg></b><span>2. Revisar montaje</span></div>
+        <div class="step" id="st2"><b><svg class="ic" aria-hidden="true"><use href="#i-tag"/></svg><svg class="ic done" aria-hidden="true"><use href="#i-check"/></svg></b><span>3. Grabar nodo</span></div>
+        <div class="step" id="st3"><b><svg class="ic" aria-hidden="true"><use href="#i-package"/></svg><svg class="ic done" aria-hidden="true"><use href="#i-check"/></svg></b><span>4. Cargar firmware principal</span></div>
+      </div>
+      <div class="strow">
+        <label>Nodo de esta tarjeta <select id="nodeSel"><option value="">Elegir…</option></select></label>
+        <button id="btnStart" class="primary" title="Carga el firmware de prueba, revisa el montaje y, si queda OK, graba el nodo y carga el firmware principal.">Iniciar prueba y carga</button>
+        <button id="btnCancel" hidden title="Detiene lo que está haciendo la estación.">Cancelar</button>
+        <button id="btnContinue" hidden title="Después de corregir una falla y repetir las pruebas: sigue con el nodo y el firmware principal.">Continuar</button>
+        <button id="btnAuth" hidden></button>
+      </div>
+      <p id="stMsg"></p>
+      <div class="progress" id="stProg" hidden><div></div></div>
+      <details>
+        <summary>Opciones y firmwares de esta página</summary>
+        <p id="fwInfo"></p>
+        <div class="actions">
+          <button id="btnOnlyPost" title="Solo carga el firmware de prueba y corre el POST.">Solo cargar firmware de prueba</button>
+          <button id="btnOnlyMain" title="Solo carga el firmware principal (la tarjeta ya debe tener su nodo grabado).">Solo cargar firmware principal</button>
+        </div>
+        <div class="actions" id="testCtl" hidden>
+          <select id="testSel" title="Programa de prueba que se carga"></select>
+          <button id="btnOnlyTest" title="Carga en la tarjeta un programa de prueba subido por un superusuario (p. ej. un sketch que prueba un sensor). Sin POST, sin nodo y sin verificar versión.">Cargar programa de prueba</button>
+        </div>
+      </details>
+    </section>
+
+    <section id="verdict">
+      <div class="vrow">
+        <span class="vic"><svg class="ic v-none" aria-hidden="true"><use href="#i-plug"/></svg><svg class="ic v-ok" aria-hidden="true"><use href="#i-check"/></svg><svg class="ic v-bad" aria-hidden="true"><use href="#i-x"/></svg><svg class="ic v-warn" aria-hidden="true"><use href="#i-alert"/></svg><svg class="ic v-info" aria-hidden="true"><use href="#i-loader"/></svg></span>
+        <div>
+          <p class="big" id="vBig">Conecta la placa</p>
+          <p class="sub" id="vSub">Conecta la placa por USB y pulsa “Conectar placa”.</p>
+        </div>
+      </div>
+      <div class="progress" id="vProg" hidden><div></div></div>
+      <div class="actions">
+        <button id="btnAll" data-cmd="POST:ALL" title="Corre otra vez las 15 pruebas del montaje (unos 20 s). Envía POST:ALL.">Probar todo de nuevo</button>
+      </div>
+      <p class="note">Para repetir una sola prueba, toca su tarjeta abajo y pulsa “Repetir esta prueba”.</p>
+    </section>
+
+    <section class="panel">
+      <h2><svg class="ic" aria-hidden="true"><use href="#i-grid"/></svg>Subsistemas (toca uno para ver qué es y qué revisar)</h2>
+      <div id="groups"></div>
+      <p class="note">Orden de arriba hacia abajo: si falla algo de “Base de hardware”, lo de abajo suele fallar también por esa causa.</p>
+    </section>
+
+    <section class="panel">
+      <details class="console">
+        <summary><svg class="ic" aria-hidden="true"><use href="#i-terminal"/></svg>Consola de la placa (texto original del puerto serie)</summary>
+        <div id="raw"></div>
+        <form class="sendrow" id="sendForm">
+          <input id="sendInput" placeholder="Comando, ej. POST:SD  ·  RTC:SET 2026-11-17 10:30:00" autocomplete="off">
+          <button type="submit">Enviar</button>
+        </form>
+      </details>
+    </section>
+  </div>
+
+  <div class="col">
+    <section class="panel" id="idPanel">
+      <h2><svg class="ic" aria-hidden="true"><use href="#i-key"/></svg>Identidad y LoRaWAN</h2>
+      <dl class="idlist">
+        <dt>Nodo</dt><dd id="idNode">—</dd>
+        <dt>DevEUI</dt><dd id="idDev">—</dd>
+        <dt>JoinEUI</dt><dd id="idJoin">—</dd>
+        <dt>AppKey</dt><dd><span id="idKey">—</span> <button class="linkbtn" id="idKeyShow" hidden>mostrar</button></dd>
+      </dl>
+      <p class="note" id="idNote"></p>
+      <div class="actions"><button id="btnIdChange">Cambiar nodo o credenciales…</button></div>
+    </section>
+
+    <section class="panel" id="reviewPanel" hidden>
+      <h2><svg class="ic" aria-hidden="true"><use href="#i-listcheck"/></svg>Revisar en este orden</h2>
+      <ol class="review" id="review"></ol>
+    </section>
+
+    <section class="panel">
+      <h2><svg class="ic" aria-hidden="true"><use href="#i-chip"/></svg>Batería y microcontrolador</h2>
+      <div class="micro" id="micro"></div>
+    </section>
+
+    <section class="panel">
+      <h2><svg class="ic" aria-hidden="true"><use href="#i-history"/></svg>Qué ha pasado</h2>
+      <ul id="events"></ul>
+    </section>
+  </div>
+</main>
+<footer class="brandfoot">WearMe · iÓmicas — estación de montaje y diagnóstico</footer>
+
+<dialog id="dlg"><div class="dlg" id="dlgBody"></div></dialog>
+
+<dialog id="idDlg"><div class="dlg">
+  <h2>Cambiar nodo o credenciales LoRaWAN</h2>
+  <p class="muted" id="idDlgNow"></p>
+  <div class="box">
+    <h4>Opción 1 · Un nodo de la tabla</h4>
+    <p class="muted" id="idOpt1Txt">Graba el número de nodo y sus credenciales (las de <code>include/wearme_credentials.h</code>).</p>
+    <div class="strow">
+      <select id="idTableSel"></select>
+      <input id="idTableNum" type="number" min="1" max="999" placeholder="Número" hidden>
+      <button id="idTableGo" class="primary">Grabar este nodo</button>
+    </div>
+  </div>
+  <div class="box">
+    <h4>Opción 2 · Credenciales propias</h4>
+    <p class="muted" id="idOpt2Txt">Para un dispositivo que no está en la tabla. Necesita el firmware de prueba cargado.</p>
+    <div class="form">
+      <label>Número de nodo (1–999) <input id="idNum" type="number" min="1" max="999"></label>
+      <label>DevEUI (16 caracteres hex) <input id="idDevIn" maxlength="16" spellcheck="false" autocomplete="off"></label>
+      <label>JoinEUI / AppEUI (16 caracteres hex) <input id="idJoinIn" maxlength="16" spellcheck="false" autocomplete="off"></label>
+      <label>AppKey (32 caracteres hex) <input id="idKeyIn" maxlength="32" spellcheck="false" autocomplete="off"></label>
+    </div>
+    <button id="idCustomGo" class="primary">Grabar credenciales propias</button>
+  </div>
+  <p class="muted">Quedan en la flash de la tarjeta y el firmware principal las usa al arrancar. El servidor LoRaWAN
+    (TTN/ChirpStack) debe tener registrado ese DevEUI con esa AppKey, o el collar no podrá unirse a la red.</p>
+  <p id="idMsg"></p>
+  <div class="actions"><button id="idClose">Cerrar</button></div>
+</div></dialog>
+
+<dialog id="fwDlg"><div class="dlg">
+  <h2>Modo superusuario · Firmwares</h2>
+  <p class="muted">El <b>firmware principal</b> es el que carga la estación en cada tarjeta, para todos los operadores; debe
+    imprimir al arrancar <code>[BOOT] Firmware &lt;versión&gt; compilado: …</code>. Un <b>código de prueba</b> (p. ej. un
+    sketch que prueba un sensor) no tiene que ver con el principal: queda guardado aparte y se carga a la tarjeta
+    conectada con «Cargar en la tarjeta». Sube el <code>.zip</code> de carga que se genera al compilar: con
+    <b>PlatformIO</b>, <code>firmware.zip</code> (carpeta de compilación, <code>seeed_wio_tracker_1110\firmware.zip</code>);
+    con <b>Arduino</b>, <code>&lt;sketch&gt;.ino.zip</code> (Programa → Exportar binario compilado; está dentro de la carpeta
+    <code>build</code> del sketch: si la comprimiste entera, saca de ahí el <code>.ino.zip</code>). El <code>.hex</code>, el
+    <code>.uf2</code> o el <code>.elf</code> solos no sirven. Cada cambio queda en el registro (<code>audit</code>).</p>
+  <div class="box">
+    <h4>En uso ahora</h4>
+    <p id="fwNow"></p>
+  </div>
+  <div class="box">
+    <h4>Subir uno nuevo</h4>
+    <label><input id="fwTest" type="checkbox"> Es un <b>código de prueba</b> (no es el firmware principal)</label>
+    <div class="strow"><input id="fwFile" type="file" accept=".zip,.hex,.uf2,.bin,.elf"></div>
+    <div id="fwParsed" hidden>
+      <p id="fwParsedInfo"></p>
+      <div class="form">
+        <label id="fwNameRow">Nombre del código de prueba <input id="fwName" maxlength="40" autocomplete="off" spellcheck="false"></label>
+        <label>Notas (qué hace o qué cambia) <input id="fwNotes" maxlength="500" autocomplete="off"></label>
+      </div>
+      <label id="fwActivateRow"><input id="fwActivate" type="checkbox" checked> Usarlo de inmediato en la estación</label>
+      <div class="strow"><button id="fwUpload" class="primary">Subir</button></div>
+    </div>
+  </div>
+  <div class="box">
+    <h4>Firmware principal: versiones guardadas</h4>
+    <ul id="fwList" class="fwlist"></ul>
+  </div>
+  <div class="box">
+    <h4>Códigos de prueba</h4>
+    <p class="muted">«Cargar en la tarjeta» lo graba en la tarjeta conectada, sin pruebas ni verificación de nodo. Para
+      volver a dejarla de collar, usa después «Iniciar prueba y carga».</p>
+    <ul id="fwTestList" class="fwlist"></ul>
+  </div>
+  <p id="fwMsg"></p>
+  <div class="actions"><button id="fwClose">Cerrar</button></div>
+</div></dialog>
+
+<dialog id="guideDlg" class="guide"><div class="dlg">
+  <h2>Guía de uso</h2>
+  <nav class="toc">
+    <a href="#g-que">Para qué sirve</a><a href="#g-antes">Antes de empezar</a><a href="#g-pasos">Probar y cargar</a>
+    <a href="#g-fallas">Si hay fallas</a><a href="#g-id">Nodo y credenciales</a><a href="#g-otras">Otras opciones</a>
+    <a href="#g-faq">Problemas frecuentes</a><a href="#g-led">El LED</a>
+  </nav>
+
+  <h3 id="g-que">Para qué sirve</h3>
+  <p>Esta página prueba que una tarjeta Wearme quedó <b>bien montada</b> (que cada chip responde) y le deja cargado el
+    <b>firmware principal</b> con su número de nodo. No hace falta PlatformIO ni tocar código.</p>
+
+  <h3 id="g-antes">Antes de empezar</h3>
+  <ul>
+    <li>Abre la página con <b>Microsoft Edge</b> o <b>Google Chrome</b> (Firefox no puede usar el puerto USB).</li>
+    <li>Cierra el monitor serie de PlatformIO y cualquier otra pestaña con esta página: el puerto lo puede usar un solo programa a la vez.</li>
+    <li>Usa un cable USB <b>de datos</b> (algunos cables solo cargan).</li>
+    <li>En la <b>versión web</b> (dirección https) entras con tu cuenta. La estación toma las credenciales de cada nodo de la base de datos,
+      no deja poner el mismo nodo en dos tarjetas y registra cada prueba. Tu correo aparece arriba a la derecha.</li>
+    <li>La primera vez el navegador pide <b>autorizar</b> la tarjeta: elige <i>Dispositivo serie USB (COMxx)</i> y pulsa <i>Conectar</i>.
+      Durante la carga lo pide una segunda vez para el <b>puerto de carga</b>, que tiene otro número COM. Después los recuerda.</li>
+  </ul>
+
+  <h3 id="g-pasos">Probar y cargar una tarjeta</h3>
+  <ol>
+    <li>Conecta la tarjeta por USB.</li>
+    <li>En <b>Estación de montaje</b> elige el <b>nodo</b> de la tarjeta (el número de su etiqueta). Si la tarjeta ya tiene uno grabado, se elige solo.
+      En la <b>versión web</b> deja <b>Automático</b>: la tarjeta conserva su nodo y, si es nueva, la base le crea el <b>siguiente número</b>
+      con credenciales nuevas (DevEUI, JoinEUI y AppKey). Anota ese número en la etiqueta. La lista completa está en <b>Nodos registrados</b>.</li>
+    <li>Pulsa <b>Iniciar prueba y carga</b> y espera. No desconectes la tarjeta mientras dice “Cargando…”. La página hace sola los 4 pasos:
+      <ol>
+        <li><b>Cargar firmware de prueba</b> (unos 40 s).</li>
+        <li><b>Revisar montaje</b>: prueba los 15 subsistemas (unos 30 s).</li>
+        <li><b>Grabar nodo</b>: deja guardados en la tarjeta su número y sus credenciales LoRaWAN.</li>
+        <li><b>Cargar firmware principal</b> (unos 60 s) y verificar que quedaron el nodo y la versión correctos.</li>
+      </ol>
+    </li>
+    <li>Cuando diga <b>“LISTO: NODO-xxx con el firmware principal…”</b> y los 4 pasos estén en verde, desconecta la tarjeta. Sigue con la próxima.</li>
+  </ol>
+  <p class="muted">Si algo se queda esperando, pulsa <b>Cancelar</b> y vuelve a empezar. Interrumpir una carga no daña la tarjeta: queda en modo carga, lista para reintentar.</p>
+
+  <h3 id="g-fallas">Si el montaje tiene fallas</h3>
+  <p>La estación se detiene en el paso 2 y no carga el firmware principal.</p>
+  <div class="legend">
+    <span style="border-color: var(--ok)">Verde: pasó</span>
+    <span style="border-color: var(--bad)">Rojo: falla, revisar</span>
+    <span style="border-color: var(--warn)">Amarillo: tolerada (ej. sensor no instalado)</span>
+    <span style="border-color: var(--none)">Gris: todavía sin probar</span>
+  </div>
+  <ol>
+    <li>Mira <b>Revisar en este orden</b> (panel derecho). Empieza por la primera falla: una falla de arriba, por ejemplo en un bus, suele causar las de abajo.</li>
+    <li>Toca la tarjeta roja: dice <b>qué es</b>, <b>qué revisar</b> y lo que respondió la placa.</li>
+    <li>Corrige el problema. Luego pulsa <b>Repetir esta prueba</b> (solo esa) o <b>Probar todo de nuevo</b>.</li>
+    <li>Cuando quede “Montaje OK”, pulsa <b>Continuar</b>: graba el nodo y carga el firmware principal.</li>
+  </ol>
+  <p class="muted">Con el USB conectado es normal que el medidor de batería lea el cargador (~4.2 V): no es falla.</p>
+
+  <h3 id="g-id">Cambiar el nodo o las credenciales LoRaWAN</h3>
+  <p>En el panel <b>Identidad y LoRaWAN</b> se ve qué nodo es la tarjeta y con qué credenciales se une a la red. Con
+    <b>Cambiar nodo o credenciales…</b>:</p>
+  <ul>
+    <li><b>Opción 1 · Un nodo de la tabla:</b> elige el número y pulsa <i>Grabar este nodo</i>. Graba el número y las credenciales de ese nodo.
+      En la versión web, <i>Nuevo</i> crea el siguiente nodo con credenciales generadas.</li>
+    <li><b>Opción 2 · Credenciales propias:</b> para un dispositivo que no está en la tabla. Escribe el número, el DevEUI, el JoinEUI y la AppKey
+      (en hexadecimal, sin espacios) y pulsa <i>Grabar credenciales propias</i>. Necesita el firmware de prueba: si la tarjeta tiene el principal,
+      usa antes <i>Solo cargar firmware de prueba</i>.</li>
+  </ul>
+  <p class="muted">Las credenciales nuevas se usan al reiniciar y con el firmware principal. Si cambias una tarjeta que ya estaba en la red,
+    el servidor LoRaWAN debe tener registradas las credenciales nuevas.</p>
+
+  <h3 id="g-otras">Otras opciones</h3>
+  <ul>
+    <li><b>Probar todo de nuevo:</b> repite las 15 pruebas (unos 20 s).</li>
+    <li><b>Opciones y firmwares de esta página</b> (en la estación): <i>Solo cargar firmware de prueba</i>, <i>Solo cargar firmware principal</i>
+      y las versiones que trae la página. Si un superusuario subió un <b>programa de prueba</b> (p. ej. un sketch que prueba
+      un sensor), aparece también <i>Cargar programa de prueba</i>: lo graba en la tarjeta sin POST ni nodo. Para volver a
+      dejarla de collar, usa después <i>Iniciar prueba y carga</i>.</li>
+    <li><b>Ver ejemplo:</b> simula una tarjeta para practicar sin hardware.</li>
+    <li><b>Consola de la placa:</b> el texto original del puerto serie, para quien sabe leerlo o quiere enviar un comando.</li>
+  </ul>
+
+  <h3 id="g-faq">Problemas frecuentes</h3>
+  <dl class="faq">
+    <dt>Los botones de carga están deshabilitados.</dt>
+    <dd>Abriste la página de diagnóstico (<code>diagnostico.html</code>), que no trae firmwares. Abre <code>Estacion_Wearme.html</code>.</dd>
+    <dt>La tarjeta no aparece en la lista para autorizar.</dt>
+    <dd>Prueba otro cable (de datos) u otro puerto USB. Si el LED no enciende, la tarjeta no recibe alimentación.</dd>
+    <dt>“No se pudo abrir el puerto”.</dt>
+    <dd>Otro programa lo está usando: cierra el monitor serie de PlatformIO o la otra pestaña con esta página y reintenta.</dd>
+    <dt>Se queda en “Reiniciando la tarjeta en modo carga” o aparece “Autorizar el puerto de carga”.</dt>
+    <dd>Pulsa ese botón y elige el puerto nuevo (es la misma tarjeta en modo carga). Si no aparece, desconecta y conecta el USB o pulsa dos veces el botón RESET de la tarjeta.</dd>
+    <dt>La carga se interrumpió (se desconectó el cable o pulsaste Cancelar).</dt>
+    <dd>No pasa nada: la tarjeta queda en modo carga, sin programa. Pulsa <i>Iniciar prueba y carga</i> otra vez.</dd>
+    <dt>“La placa no responde”.</dt>
+    <dd>Si el LED no destella, el programa está colgado: el watchdog la reinicia sola a los 60 s.</dd>
+  </dl>
+
+  <h3 id="g-led">El LED de la tarjeta (firmware de prueba)</h3>
+  <ul>
+    <li><b>Destello verde cada 2 s:</b> funcionando, sin fallas.</li>
+    <li><b>Destello rojo cada 2 s:</b> funcionando, pero hay algún subsistema con falla.</li>
+    <li><b>Fijo o apagado, sin destellar:</b> colgado (se reinicia solo a los 60 s).</li>
+  </ul>
+  <div class="actions close"><button id="guideClose" class="primary">Entendido</button></div>
+</div></dialog>
+
+<script>
+/* ===================== PARSER BEGIN (sin DOM: se prueba con node) ===================== */
+
+// Subsistemas en el orden del POST (post_tests[] de lib/post_lib/post_lib.cpp). fw = nombre exacto del firmware.
+const CATALOG = [
+  { code: 0x08, group: 'Base de hardware', fwGroup: 'BASE DE HARDWARE', token: 'I2C', fw: 'I2C BUSES (I2C1, I2C2/TCA4307)',
+    title: 'Buses de comunicación I2C', chip: 'I2C1, I2C2 + TCA4307',
+    what: 'Son los “cables” por donde el micro habla con casi todos los chips (batería, reloj, IMU, sensores). Si fallan, muchas otras pruebas fallan también: arregla esto primero.',
+    steps: ['Si dice “I2C2 sin ningún dispositivo”: el TCA4307 no conecta. Revisa el TCA4307, los pull-ups de SDA_2_OUT/SCL_2_OUT y que ninguna de esas líneas esté a GND. Arregla esto primero: batería, reloj, IMU y la tarjeta MEMS fallan por lo mismo.',
+            'Busca cortos o soldaduras unidas en SDA/SCL (I2C1: P0.11/P0.16; I2C2: P1.03/P1.05).',
+            'Verifica las resistencias pull-up de cada bus.',
+            'Desconecta las tarjetas externas (MEMS, RF) y repite: si pasa, el problema está en una de ellas.',
+            'Si falla I2C2: revisa el TCA4307 y que el IMU esté alimentado (POWER_IMU apagado deja el bus en bajo).'] },
+  { code: 0x09, group: 'Base de hardware', fwGroup: 'BASE DE HARDWARE', token: 'EXPANDER', fw: 'IO EXPANDER (TCA6408A)',
+    title: 'Expansor de pines', chip: 'TCA6408A · 0x20',
+    what: 'Chip que enciende y apaga la alimentación de los módulos (GPS, IMU, sensores). Si falla, los interruptores de alimentación tampoco funcionan.',
+    steps: ['Revisa las soldaduras del TCA6408A.',
+            'Confirma ADDR a GND (dirección 0x20) y el pull-up de RESET# (R80).',
+            'Si dice “perdió la configuración”: hubo una caída de alimentación; revisa VDD.'] },
+  { code: 0x0A, group: 'Base de hardware', fwGroup: 'BASE DE HARDWARE', token: 'POWER', fw: 'POWER RAILS (SIP32431)',
+    title: 'Interruptores de alimentación', chip: 'SIP32431 (varios)',
+    what: 'Llaves electrónicas que dan energía a GPS, sensor CH4, IMU, sensores de viento, etc.',
+    steps: ['En “Detalle de la última prueba” mira qué riel marcó error (línea SIP32431 …).',
+            'Si el GPS dice “AVISO, tolerado: CTRL_GPS queda en ALTO”: algo une CTRL_GPS a VDD (R154 en la tarjeta RF, R167 o un puente de soldadura) y el GPS no se puede apagar (gasta batería). La prueba sigue en OK; para que vuelva a contar como falla: RAILS_GPS_STUCK_TOLERATED 0 en board_nrf52.h.',
+            'Mide el pin EN de ese interruptor: debe coincidir con lo pedido (ON = alto).',
+            'Busca un corto o una carga excesiva en la salida de ese riel.'] },
+  { code: 0x0F, group: 'Base de hardware', fwGroup: 'BASE DE HARDWARE', token: 'WDT', fw: 'WATCHDOG (WDT + reinicios)',
+    title: 'Watchdog (perro guardián)', chip: 'WDT del nRF52840',
+    what: 'Reinicia la placa sola si el programa se cuelga. Falla si está detenido o si la placa se reinició varias veces seguidas por bloqueo.',
+    steps: ['Mira “Reinicios por bloqueo” y su causa en el panel del microcontrolador.',
+            'Si se repite, algo bloquea siempre en el mismo punto: revisa qué se estaba probando cuando se reinició (panel “Qué ha pasado”).'] },
+  { code: 0x02, group: 'Energía y hora', fwGroup: 'ENERGIA Y HORA', token: 'BATTERY', fw: 'BATTERY (MAX17048)',
+    title: 'Medidor de batería', chip: 'MAX17048 · 0x36',
+    what: 'Mide el voltaje y la carga de la batería. La prueba lo lee 6 s seguidos: falla si el chip no responde, si NO HAY BATERÍA (sin celda el medidor lee el cargador y el voltaje sube y baja) o si la batería está MALA (menos de 3.0 V aun cargando por USB).',
+    steps: ['Si dice SIN BATERÍA: conecta la batería; si ya está, revisa su conector y el cable (y la protección de la celda, que puede estar abierta).',
+            'Si dice BATERÍA MALA O MUY DESCARGADA: déjala cargar unos minutos por USB y repite la prueba; si sigue bajo 3.0 V, cámbiala.',
+            'Si “no responde en 0x36”: revisa las soldaduras del MAX17048. Depende del bus I2C2 (detrás del TCA4307): si los buses fallan, arregla eso primero.',
+            'Si el voltaje está fuera de 2.5–4.5 V: revisa el conector de la batería y la salida del cargador.',
+            'Para ver las lecturas una por una: comando BAT:LOG en la consola de la placa.'] },
+  { code: 0x07, group: 'Energía y hora', fwGroup: 'ENERGIA Y HORA', token: 'RTC', fw: 'RTC (RX8130CE)',
+    title: 'Reloj (fecha y hora)', chip: 'RX8130CE · 0x32',
+    what: 'Guarda la fecha y la hora, incluso con la placa apagada.',
+    steps: ['Si dice “hora inválida”: ponlo en hora con el comando RTC:SET AAAA-MM-DD HH:MM:SS (consola).',
+            'Si dice que “no avanza”: revisa el cristal de 32.768 kHz y sus soldaduras.',
+            'Revisa la alimentación de respaldo del reloj.'] },
+  { code: 0x0B, group: 'Almacenamiento', fwGroup: 'ALMACENAMIENTO', token: 'SD', fw: 'SD CARD',
+    title: 'Tarjeta microSD', chip: 'SPI · CS P0.26',
+    what: 'Donde la placa guarda los datos medidos.',
+    steps: ['Verifica que la microSD esté insertada hasta el fondo.',
+            'Prueba con otra tarjeta, formateada en FAT32.',
+            'Revisa los contactos del zócalo y la línea CS (P0.26).',
+            'Luego pulsa “Repetir esta prueba”: se puede insertar sin reiniciar la placa.'] },
+  { code: 0x01, group: 'Sensores', fwGroup: 'SENSORES', token: 'IMU', fw: 'IMU (LSM6DS3TR-C)',
+    title: 'Acelerómetro / giroscopio', chip: 'LSM6DS3TR-C · 0x6A',
+    what: 'Detecta el movimiento y la orientación del collar.',
+    steps: ['Deja la placa quieta sobre la mesa y repite (debe medir cerca de 1 g).',
+            'Revisa el riel POWER_IMU (U80).',
+            'Revisa las soldaduras del chip (encapsulado pequeño, fácil de soldar mal).'] },
+  { code: 0x0C, group: 'Sensores', fwGroup: 'SENSORES', token: 'ENV', fw: 'ENVIRONMENT (BME280)',
+    title: 'Sensor ambiental', chip: 'BME280 · 0x76 (tarjeta MEMS)',
+    what: 'Mide temperatura, humedad y presión. Está en la tarjeta MEMS.',
+    steps: ['Verifica que la tarjeta MEMS y su cable estén bien conectados.',
+            'Confirma que el chip sea un BME280 (un BMP280 no mide humedad y da otro CHIP_ID).',
+            'Si la lectura está fuera de rango, el sensor puede estar dañado.'] },
+  { code: 0x04, group: 'Sensores', fwGroup: 'SENSORES', token: 'CH4', fw: 'SENSOR CH4/H2 (MEMS)',
+    title: 'Sensor de metano / hidrógeno', chip: 'MCP4018 · ADS1219 · FAN53741',
+    what: 'Mide gases. Usa un potenciómetro digital (MCP4018), un conversor (ADS1219) y un regulador para el calefactor (FAN53741).',
+    steps: ['Verifica que la tarjeta MEMS esté conectada.',
+            'En “Detalle de la última prueba” mira qué chip no responde.',
+            'Revisa el riel CTRL_CH4 (P1 del expansor).'] },
+  { code: 0x0D, group: 'Sensores', fwGroup: 'SENSORES', token: 'GPS', fw: 'GPS (L96-M33)',
+    title: 'GPS', chip: 'Quectel L96-M33 (tarjeta RF)',
+    what: 'Da la posición. Está en la tarjeta RF. Para pasar no necesita señal de satélites, solo que hable.',
+    steps: ['“Sin tráfico”: el GPS no recibe energía o la tarjeta RF está desconectada (FPC2).',
+            'Revisa CTRL_GPS (P0 del expansor) y la resistencia R154.',
+            '“Llegan bits pero no tramas”: el GPS está a una velocidad distinta de 9600.'] },
+  { code: 0x0E, group: 'Sensores', fwGroup: 'SENSORES', token: 'WIND', fw: 'WIND (FS3000-1015 x2, TCA9543A)',
+    title: 'Sensores de viento', chip: 'FS3000 x2 + mux TCA9543A',
+    what: 'Miden el flujo de aire en las dos fosas. La prueba enciende POWER_VEL y lee los dos sensores: pasa solo si ambos responden.',
+    steps: ['Revisa el mux TCA9543A (0x70) y los cables (canal 0 = derecho, canal 1 = izquierdo).',
+            'La tarjeta y “Por lado” dicen cuál falla: revisa el cable y la tarjeta FS3000 de ese lado (“NO RESPONDE”: no contesta; “DATO CORRUPTO”: contesta con errores).',
+            'Revisa el riel POWER_VEL (P3 del expansor).', 'En una placa sin los sensores, POLICY:WIND=TOL por serie tolera la falla hasta reiniciar.'] },
+  { code: 0x03, group: 'Actuadores', fwGroup: 'ACTUADORES', token: 'BLOWER', fw: 'BLOWER (tacometro)',
+    title: 'Ventilador (blower)', chip: 'FAN P0.28 · FG P0.13',
+    what: 'Hace pasar aire por los sensores. La prueba lo enciende 2.5 s y cuenta los pulsos de su tacómetro.',
+    steps: ['¿Se vio o se oyó girar? Si no: revisa su alimentación y FAN_CONTROL (P0.28).',
+            'Si gira pero no hay pulsos: revisa el cable FG hasta P0.13.',
+            'Si la velocidad está lejos de la nominal: motor dañado o FAN_PULSES_PER_REV mal configurado.'] },
+  { code: 0x05, group: 'Comunicaciones', fwGroup: 'COMUNICACIONES', token: 'LORA', fw: 'LORA COMM',
+    title: 'Radio LoRa', chip: 'LR1110 (módulo WM1110)',
+    what: 'La radio de largo alcance que envía los datos. Este firmware solo verifica que el chip responde (no transmite).',
+    steps: ['Si dice “ocupado”, repite la prueba.',
+            'Revisa la alimentación y las soldaduras del módulo WM1110.'] },
+  { code: 0x06, group: 'Comunicaciones', fwGroup: 'COMUNICACIONES', token: 'BT', fw: 'BLUETOOTH',
+    title: 'Bluetooth', chip: 'SoftDevice S140',
+    what: 'La conexión con la app del celular.',
+    steps: ['Mira en la consola los mensajes [INIT] Bluetooth del arranque.',
+            'Verifica que el SoftDevice S140 y el bootloader estén grabados (comando BOOT?).',
+            'Con el celular, busca un dispositivo llamado WearMe_…'] },
+];
+const BY_CODE = {}, BY_FW = {}, BY_TOKEN = {};
+// Ícono de cada subsistema (sprite #i-... al inicio del body)
+const CARD_ICON = { 0x08: 'bus', 0x09: 'toggle', 0x0A: 'power', 0x0F: 'timer', 0x02: 'battery', 0x07: 'clock',
+  0x0B: 'sd', 0x01: 'move', 0x0C: 'thermo', 0x04: 'flame', 0x0D: 'pin', 0x0E: 'wind', 0x03: 'fan', 0x05: 'radio',
+  0x06: 'bt' };
+for (const c of CATALOG) { BY_CODE[c.code] = c; BY_FW[c.fw] = c; BY_TOKEN[c.token] = c; }
+
+const MICRO_KEYS = {
+  'Vueltas del loop': { id: 'loop', label: 'Velocidad del programa', help: 'Vueltas del loop por segundo (normal ~190).' },
+  'Pila libre minima': { id: 'stack', label: 'Memoria de pila libre', help: 'Lo mínimo que quedó libre (de 4 KB).' },
+  'Temperatura CPU': { id: 'temp', label: 'Temperatura del micro', help: 'Sensor interno del nRF52840.' },
+  'Reinicios por WDT': { id: 'wdt', label: 'Reinicios por bloqueo', help: 'Reinicios seguidos causados por el watchdog.' },
+  'Alimentacion USB': { id: 'usb', label: 'Alimentación USB', help: 'Si hay voltaje en el USB.' },
+};
+// Mismos umbrales que src/main.cpp
+const LOOP_MIN_PER_S = 100, STACK_MIN_FREE_B = 512, CPU_MAX_C = 70;
+
+const STATE_FROM_TABLE = { 'OK': 'OK', 'FALLA': 'FAIL', 'FALLA SIM': 'SIM', 'TOLERADA': 'TOL', 'OMITIDA': 'SKIP', 'SIN CORRER': 'NONE' };
+
+// Sensores de viento: qué lado falla según la última prueba ('' si no se sabe o pasaron los dos)
+const WIND_SIDES = [['right', 'Derecho'], ['left', 'Izquierdo']];
+function windFailText(s) {
+  if (!s.sides) return '';
+  const bad = WIND_SIDES.filter(([k]) => s.sides[k] && !s.sides[k].ok).map(([, n]) => n.toLowerCase());
+  return bad.length === 2 ? 'fallan los dos: derecho e izquierdo' : bad.length ? 'falla el ' + bad[0] : '';
+}
+function windShort(s) { // "Der OK · Izq FALLA" para la tarjeta
+  if (!s.sides) return '';
+  return WIND_SIDES.map(([k, n]) => n.slice(0, 3) + ' ' + (!s.sides[k] ? '—' : s.sides[k].ok ? 'OK' : 'FALLA')).join(' · ');
+}
+
+function windSideHint(s) {
+  const t = windFailText(s);
+  if (t.startsWith('fallan los dos')) return 'Fallan los dos sensores: revisa el riel POWER_VEL (P3) y que las dos tarjetas FS3000 estén conectadas.';
+  const k = t.endsWith('derecho') ? 'right' : 'left';
+  return 'Falla el sensor ' + (k === 'right' ? 'DERECHO (canal 0)' : 'IZQUIERDO (canal 1)') + ': ' + s.sides[k].text + '.';
+}
+
+function newState() {
+  const subs = {};
+  for (const c of CATALOG) subs[c.code] = { state: 'NONE', policy: 'CRIT', fails: 0, runs: 0,
+    testedAt: 0, details: [], fwHint: [], loopDetected: false, sides: null };
+  return {
+    subs, micro: {}, battery: { samples: [], absentMsg: false, rangeMsg: false, badMsg: false, swing: null }, uptimeS: null, uptimeAt: 0, postCount: 0, deviceId: '', fw: '', node: '',
+    post: null,            // {full, done, total, current} mientras corre una prueba
+    table: null,           // tabla [TABLA] en lectura
+    led: null,             // 'ROJO' | 'VERDE'
+    gotData: false, lastLineAt: 0,
+    nodeStored: null,      // NODE?: true = grabado en la flash, false = solo el del firmware, null = no lo dice
+    nodeAt: 0, nodeSetAt: 0, nodeError: '', fwAt: 0, tableAt: 0, nodeIdAt: 0,
+    lora: { src: '', dev: '', join: '', key: '', flash: '' }, // LORA:CRED? (o el arranque)
+    loraAt: 0, loraSetAt: 0, loraResetAt: 0, loraError: '',
+  };
+}
+let S = newState();
+let emit = (text, kind) => {};          // la UI lo reemplaza (panel "Qué ha pasado")
+let onNeedTable = () => {};             // la UI lo reemplaza (pide TABLA? cuando el [VIVO] no cuadra)
+
+function parseAge(s) {
+  const m = /^(\d+) (s|min|h)$/.exec(s.trim());
+  if (!m) return 0;
+  return Date.now() - Number(m[1]) * (m[2] === 's' ? 1e3 : m[2] === 'min' ? 6e4 : 36e5);
+}
+function isFailState(st) { return st === 'FAIL' || st === 'SIM'; }
+
+function parseLine(raw) {
+  const line = raw.replace(/\r$/, '');
+  S.lastLineAt = Date.now();
+  if (!line.trim()) return;
+  let m;
+
+  // ---- Arranque ----
+  if (line.includes('WEARME POST TEST')) {
+    const keepId = S.deviceId;
+    S = newState(); S.deviceId = keepId; S.lastLineAt = Date.now(); S.gotData = true;
+    emit('La placa arrancó (reinicio o encendido).', 'warn');
+    return;
+  }
+  if ((m = /nRF52840 DEVICEID ([0-9A-F]+)/.exec(line))) { S.deviceId = m[1]; return; }
+  if ((m = /^\s+Firmware (.+?) \| compilado/.exec(line))) { S.fw = m[1]; return; }
+  if ((m = /^\[NODO\] (NODO-[^ ]+) \| Bluetooth "(.*)"(?: \| (guardado|SIN GUARDAR))?/.exec(line))) {
+    S.node = m[1]; S.nodeStored = m[3] ? m[3] === 'guardado' : null; S.nodeAt = Date.now();
+    return;
+  }
+  if ((m = /^\[NODO\] Este collar ahora es (NODO-\d+)/.exec(line))) {
+    S.node = m[1]; S.nodeStored = true; S.nodeSetAt = Date.now();
+    emit('Identidad grabada en la tarjeta: ' + m[1] + '.', 'ok');
+    return;
+  }
+  if ((m = /^\[NODO\] DEVICEID ([0-9A-F]{16})/.exec(line))) { S.deviceId = m[1]; return; }
+  if ((m = /^\[NODO\] Numero de nodo grabado: (NODO-\d+)/.exec(line))) {
+    S.node = m[1]; S.nodeStored = true; S.nodeIdAt = Date.now();
+    emit('Número de nodo grabado: ' + m[1] + '.', 'ok');
+    return;
+  }
+  if ((m = /^\[LORA\] En uso \((.+?)\): DevEUI ([0-9A-F]{16}) \| JoinEUI ([0-9A-F]{16}) \| AppKey ([0-9A-F]{32})/.exec(line))) {
+    Object.assign(S.lora, { src: m[1], dev: m[2], join: m[3], key: m[4] });
+    return;
+  }
+  if ((m = /^\[LORA\] Flash: (.*)$/.exec(line))) { S.lora.flash = m[1]; S.loraAt = Date.now(); return; }
+  if (/^\[LORA\] Credenciales grabadas y verificadas/.test(line)) { S.loraSetAt = Date.now(); emit('Credenciales LoRaWAN grabadas y verificadas.', 'ok'); return; }
+  if (/^\[LORA\] Credenciales borradas/.test(line)) { S.loraResetAt = Date.now(); return; }
+  if (/^\[LORA\] (Ya hay credenciales|ERROR|Formato|No se pudieron)/.test(line)) { S.loraError = line.slice(7); emit(S.loraError, 'bad'); return; }
+  if (line.startsWith('[INIT]') && (m = /Credenciales LoRaWAN.*?DevEUI ([0-9A-F]{16})(?: \| JoinEUI ([0-9A-F]{16}))?/.exec(line))) {
+    S.lora.dev = m[1]; if (m[2]) S.lora.join = m[2];
+  }
+  if (/^\[NODO\] (El nodo .* no esta|ERROR)/.test(line)) { S.nodeError = line.slice(7); emit(S.nodeError, 'bad'); return; }
+  if ((m = /^\[BOOT\] Firmware (.+?) compilado:/.exec(line))) { S.fw = m[1]; S.fwAt = Date.now(); return; }
+
+  // ---- Tabla [TABLA] ----
+  if ((m = /^===== \[TABLA\].*?\| (\d+):(\d\d):(\d\d) encendido \| POST completos: (\d+)/.exec(line))) {
+    setUptime(+m[1] * 3600 + +m[2] * 60 + +m[3]);
+    S.postCount = +m[4];
+    S.table = { review: [], cur: null, hints: {} };
+    S.gotData = true;
+    return;
+  }
+  // Una tabla cortada (p. ej. al conectar a mitad) no debe tragarse el resto: cualquier línea [..] la cierra
+  if (S.table && (line.startsWith('[') || line.startsWith('====='))) S.table = null;
+  if (S.table) {
+    if ((m = /^\s+LED de vida: (ROJO|VERDE)/.exec(line))) {
+      S.led = m[1];
+      S.tableAt = Date.now();
+      for (const c of CATALOG) {
+        const sub = S.subs[c.code];
+        sub.fwHint = S.table.hints[c.code] || [];
+        sub.loopDetected = sub.fwHint.some(h => h.includes('detectada en el loop'));
+      }
+      S.table = null;
+      return;
+    }
+    if (line.startsWith('|')) {
+      const p = line.split('|').map(x => x.trim());
+      if ((m = /^0x([0-9A-Fa-f]{2})$/.exec(p[1] || '')) && p.length >= 7) {
+        const sub = S.subs[parseInt(m[1], 16)];
+        if (!sub) return;
+        const st = STATE_FROM_TABLE[p[4]];
+        if (st && !(S.post && S.post.current === parseInt(m[1], 16))) sub.state = st;
+        sub.policy = p[3];
+        const fr = /^(\d+)\/(\d+)$/.exec(p[5]);
+        if (fr) { sub.fails = +fr[1]; sub.runs = +fr[2]; }
+        sub.testedAt = p[6] === '-' ? 0 : parseAge(p[6]);
+        return;
+      }
+      const mk = MICRO_KEYS[p[1]];
+      if (mk) {
+        const hint = (p[4] || '').replace(/^->\s*/, '');
+        S.micro[mk.id] = { value: p[2], ok: p[3] !== 'ALERTA', hint: p[3] === 'ALERTA' ? hint : '', cause: '' };
+        return;
+      }
+      if ((m = /^causa del ultimo: (.*)$/.exec(p[1] || '')) && S.micro.wdt) { S.micro.wdt.cause = m[1]; return; }
+      return;
+    }
+    if ((m = /^\s+\d+\. (.+?) \[POST:([A-Z0-9]+)\]/.exec(line))) {
+      const c = BY_TOKEN[m[2]];
+      S.table.cur = c ? c.code : null;
+      if (c) { S.table.review.push(c.code); S.table.hints[c.code] = []; }
+      return;
+    }
+    if ((m = /^\s+-> (.*)$/.exec(line)) && S.table.cur != null) { S.table.hints[S.table.cur].push(m[1]); return; }
+    return;
+  }
+
+  // ---- Pruebas del POST ----
+  if (line.startsWith('Running FULL SYSTEM TEST')) {
+    S.post = { full: true, done: 0, total: CATALOG.length, current: null };
+    S.gotData = true;
+    emit('Comenzó el POST completo (prueba de todos los subsistemas).', 'info');
+    return;
+  }
+  if ((m = /^\[POST\] ALL SYSTEMS - (\w+)(?: \((.*)\))?/.exec(line))) {
+    const ok = m[1] === 'PASSED';
+    S.post = null;
+    emit(ok ? 'POST completo: la placa PASÓ.' : 'POST completo: hay fallas (' + (m[2] || '') + ').', ok ? 'ok' : 'bad');
+    return;
+  }
+  if (line.startsWith('[POST] ') && BY_FW[line.slice(7).trim()]) {
+    const c = BY_FW[line.slice(7).trim()];
+    if (!S.post) S.post = { full: false, done: 0, total: 1, current: null };
+    S.post.current = c.code;
+    const sub = S.subs[c.code];
+    sub.prevState = sub.state;
+    sub.state = 'RUN';
+    sub.details = [];
+    sub.sides = null;
+    S.gotData = true;
+    return;
+  }
+  if ((m = /^[01]\t[01]\t[01]\t[01]\t(.+) - (PASSED|FAILED|TOLERATED|SKIPPED|ERROR)\s*$/.exec(line))) {
+    const c = BY_FW[m[1].trim()];
+    if (!c) return;
+    const sub = S.subs[c.code];
+    const r = m[2];
+    sub.state = r === 'PASSED' ? 'OK' : r === 'FAILED' ? (sub.policy === 'SIM' ? 'SIM' : 'FAIL')
+              : r === 'TOLERATED' ? 'TOL' : 'SKIP';
+    sub.runs++;
+    if (r === 'FAILED' || r === 'TOLERATED') sub.fails++;
+    sub.testedAt = Date.now();
+    sub.loopDetected = false;
+    const wasFail = isFailState(sub.prevState);
+    if (r === 'FAILED') emit(c.title + ': FALLÓ' + (c.code === 0x0E && windFailText(sub) ? ' (' + windFailText(sub) + ')' : '') + '.', 'bad');
+    else if (r === 'PASSED' && (wasFail || !S.post || !S.post.full)) emit(c.title + ': pasó' + (wasFail ? ' (ya no falla).' : '.'), 'ok');
+    else if (r === 'TOLERATED' && (!S.post || !S.post.full)) emit(c.title + ': falla tolerada.', 'warn');
+    if (S.post) {
+      S.post.done++;
+      S.post.current = null;
+      if (!S.post.full) S.post = null;
+    }
+    return;
+  }
+  // ---- Lecturas del MAX17048 (en [INIT] y en cada POST:BATTERY); no corta: también van al detalle ----
+  if ((m = /MAX17048 v[0-9A-Fa-f]+ \| ([\d.]+) V \| SOC (-?[\d.]+) % \| (-?[\d.]+) %\/h/.exec(line))) {
+    const b = S.battery;
+    b.samples.push({ t: Date.now(), v: +m[1], soc: +m[2], crate: +m[3] });
+    if (b.samples.length > 30) b.samples.shift();
+    b.absentMsg = false; b.rangeMsg = false; b.badMsg = false; b.swing = null;
+  }
+  if (line.includes('SIN BATERIA')) S.battery.absentMsg = true;
+  if (line.includes('BATERIA MALA')) S.battery.badMsg = true;
+  if (line.includes('fuera del rango de una celda')) S.battery.rangeMsg = true;
+  if ((m = /\[POST\]\s+Resumen \(\d+ lecturas\): .*\(varia (\d+) mV\)/.exec(line))) S.battery.swing = +m[1];
+
+  if (S.post && S.post.current != null) {
+    const sub = S.subs[S.post.current];
+    if (sub.details.length < 40) sub.details.push(line.replace(/^\[POST\]\s{3}/, ''));
+    // Sensores de viento: "[POST]   Derecho (canal 0): OK 0.00 m/s (409 cuentas)" / "...: NO RESPONDE ..."
+    if (S.post.current === 0x0E && (m = /^\[POST\]\s+(Derecho|Izquierdo) \(canal (\d)\): (.*)$/.exec(line))) {
+      if (!sub.sides) sub.sides = {};
+      sub.sides[m[1] === 'Derecho' ? 'right' : 'left'] = { ok: /^OK(\s|$)/.test(m[3]), text: m[3].replace(/^OK\s*/, ''), channel: +m[2] };
+    }
+    return;
+  }
+
+  // ---- Señal de vida [VIVO] ----
+  if ((m = /^\[VIVO\] (\d+):(\d\d):(\d\d) encendido \| loop (\d+) \/s \| CPU (\S+) C \| pila libre min (\d+) B \| (.*)$/.exec(line))) {
+    setUptime(+m[1] * 3600 + +m[2] * 60 + +m[3]);
+    S.gotData = true;
+    const loop = +m[4], temp = parseFloat(m[5]), stack = +m[6];
+    S.micro.loop = { value: loop + ' /s', ok: loop >= LOOP_MIN_PER_S || loop === 0, hint: S.micro.loop?.hint || 'algo bloquea el loop (prueba larga, bus I2C colgado); normal justo tras una prueba', cause: '' };
+    if (!isNaN(temp)) S.micro.temp = { value: temp.toFixed(2) + ' C', ok: temp <= CPU_MAX_C, hint: 'placa caliente: corto en un riel o regulador; medir el consumo', cause: '' };
+    if (stack) S.micro.stack = { value: stack + ' B', ok: stack >= STACK_MIN_FREE_B, hint: 'riesgo de desborde de pila (4 KB)', cause: '' };
+    // Fallas según la placa vs lo que muestra la app: si no cuadran, se pide la tabla
+    const rest = m[7];
+    const failNow = new Set();
+    if (rest.startsWith('FALLAS:')) for (const c of CATALOG) if (rest.includes(c.fw)) failNow.add(c.code);
+    const shown = new Set(CATALOG.filter(c => isFailState(S.subs[c.code].state)).map(c => c.code));
+    const same = failNow.size === shown.size && [...failNow].every(x => shown.has(x));
+    if (!rest.startsWith('POST sin correr') && !same && !S.post) onNeedTable();
+    return;
+  }
+}
+
+/* Batería según las lecturas del MAX17048 (las mismas reglas que POST:BATTERY en el firmware). Sin batería el
+ * medidor lee la salida del cargador: el voltaje sube y baja (diente de sierra) o el SOC/C-rate salen imposibles.
+ * Es FALLA, igual que una batería bajo 3.0 V aun cargando o un voltaje fuera de 2.5-4.5 V. */
+function batteryVerdict(b) {
+  if (!b.samples.length) return null;
+  const last = b.samples[b.samples.length - 1];
+  const value = last.v.toFixed(2) + ' V · ' + last.soc.toFixed(1) + ' %' + (b.swing != null ? ' · varía ' + b.swing + ' mV' : '');
+  if (b.rangeMsg || last.v < 2.5 || last.v > 4.5)
+    return { ok: false, value, msg: 'Voltaje fuera del rango de una celda Li+ (2.5–4.5 V): revisar la conexión de la batería y del cargador.' };
+  if (b.absentMsg || last.soc > 103 || Math.abs(last.crate) > 300)
+    return { ok: false, value, msg: 'SIN BATERÍA: el medidor lee el cargador (el voltaje sube y baja). Conecta la batería o revisa su conector.' };
+  if (b.badMsg || last.v < 3.0)
+    return { ok: false, value, msg: 'BATERÍA MALA O MUY DESCARGADA: menos de 3.0 V aun cargando por USB. Déjala cargar y repite; si sigue, cámbiala.' };
+  if (last.v < 3.3) return { ok: true, value, msg: 'Batería conectada, baja: cargando por USB.' };
+  return { ok: true, value, msg: 'Batería conectada' + (b.swing != null ? ' (voltaje estable)' : '') + (last.crate > 5 ? ', cargando.' : '.') };
+}
+
+function setUptime(sec) {
+  if (S.uptimeS != null) {
+    const expected = S.uptimeS + (Date.now() - S.uptimeAt) / 1000;
+    if (sec + 5 < expected) emit('La placa se reinició (el tiempo encendido volvió a ' + fmtUptime(sec) + ').', 'warn');
+  }
+  S.uptimeS = sec; S.uptimeAt = Date.now();
+}
+function fmtUptime(sec) {
+  sec = Math.floor(sec);
+  return Math.floor(sec / 3600) + ':' + String(Math.floor(sec / 60) % 60).padStart(2, '0') + ':' + String(sec % 60).padStart(2, '0');
+}
+
+/* ---- Simulador para "Ver ejemplo": genera el mismo texto que el firmware ---- */
+const Demo = {
+  t0: 0, subs: null, sdTries: 0, out: null,
+  start(out) {
+    this.out = out; this.t0 = Date.now(); this.sdTries = 0;
+    this.subs = {}; for (const c of CATALOG) this.subs[c.code] = { last: 'NONE', fails: 0, runs: 0, at: 0 };
+    const L = [
+      '=====================================', '  WEARME POST TEST (solo prueba de placa)',
+      '  Firmware POST-TEST 1.0 | compilado Nov 17 2026 10:00:00', '  nRF52840 DEVICEID 00000000DE3D0001',
+      '  Sin Join LoRaWAN, sin anillo, sin mediciones', '=====================================',
+      '[INIT] (ejemplo: inicializacion de la placa)'];
+    return L.concat(this.runAll(), this.table(), [this.vivo()]);
+  },
+  up() { return Math.floor((Date.now() - this.t0) / 1000) + 3; },
+  bits(code) { let s = ''; for (let b = 3; b >= 0; b--) s += ((code >> b) & 1) + '\t'; return s; },
+  runOne(c) {
+    const d = this.subs[c.code];
+    let res = 'PASSED', det = ['[POST]   (ejemplo) prueba OK'];
+    if (c.code === 0x0B && this.sdTries++ === 0) { res = 'FAILED'; det = ['[POST]   SD: no responde (sin tarjeta o no inicializa)']; }
+    if (c.code === 0x0E) det = ['[POST]   Derecho (canal 0): OK 0.00 m/s (409 cuentas)', '[POST]   Izquierdo (canal 1): OK 0.00 m/s (409 cuentas)'];
+    d.last = res; d.runs++; if (res !== 'PASSED') d.fails++; d.at = Date.now();
+    return ['[POST] ' + c.fw].concat(det, [this.bits(c.code) + c.fw + ' - ' + res]);
+  },
+  runAll() {
+    let L = ['', '========================================', '        POWER AND SELF TEST (POST)       ',
+             '========================================', '', 'Running FULL SYSTEM TEST...', ''];
+    let fail = 0, first = null, pass = 0, tol = 0;
+    CATALOG.forEach((c, i) => {
+      if (i === 0 || CATALOG[i - 1].fwGroup !== c.fwGroup) L.push('', '--- ' + c.fwGroup + ' ---');
+      L = L.concat(this.runOne(c));
+      const r = this.subs[c.code].last;
+      if (r === 'FAILED') { fail++; first = first || c.fw; } else if (r === 'TOLERATED') tol++; else pass++;
+    });
+    this.allRuns = (this.allRuns || 0) + 1;
+    L.push('', '[POST] ALL SYSTEMS - ' + (fail ? 'FAILED' : 'PASSED') + ' (' + pass + ' PASS, ' + fail + ' FAIL, ' + tol +
+           ' TOL, 0 SKIP' + (first ? ' | primera falla: ' + first : '') + ')');
+    return L;
+  },
+  failing() { return CATALOG.filter(c => this.subs[c.code].last === 'FAILED'); },
+  table() {
+    const pad = (s, n) => String(s).slice(0, n).padEnd(n), lpad = (s, n) => String(s).padStart(n);
+    const R = '+------+----------------------------------+------+------------+---------+---------+';
+    const L = ['', '===== [TABLA] Diagnostico de la placa | ' + fmtUptime(this.up()) + ' encendido | POST completos: ' + (this.allRuns || 0) + ' =====',
+               R, '| Cod  | Subsistema                       | Pol. | Estado     |  Fallas | Probado |', R];
+    let ok = 0, bad = 0;
+    CATALOG.forEach((c, i) => {
+      if (i === 0 || CATALOG[i - 1].fwGroup !== c.fwGroup) L.push('| ' + pad(c.fwGroup, 79) + ' |');
+      const d = this.subs[c.code];
+      const st = d.last === 'PASSED' ? 'OK' : d.last === 'FAILED' ? 'FALLA' : d.last === 'TOLERATED' ? 'TOLERADA' : 'SIN CORRER';
+      if (st === 'OK') ok++; else if (st !== 'SIN CORRER') bad++;
+      const age = d.runs ? Math.floor((Date.now() - d.at) / 1000) + ' s' : '-';
+      L.push('| 0x' + c.code.toString(16).toUpperCase().padStart(2, '0') + ' | ' + pad(c.fw, 32) + ' | ' +
+             pad(c.code === 0x0E ? 'TOL' : 'CRIT', 4) + ' | ' + pad(st, 10) + ' | ' + lpad(d.fails + '/' + d.runs, 7) +
+             ' | ' + lpad(age, 7) + ' |' + (st === 'FALLA' ? ' <-- revisar' : ''));
+    });
+    L.push(R, '  ' + ok + ' OK | ' + bad + ' con falla | 0 sin probar/omitidas  (Fallas = corridas que fallaron/total)');
+    const probs = CATALOG.filter(c => ['FAILED', 'TOLERATED'].includes(this.subs[c.code].last));
+    if (!probs.length) L.push('  QUE REVISAR: nada, todos los subsistemas pasaron');
+    else {
+      L.push('  QUE REVISAR (en orden: una falla de arriba suele causar las de abajo; arreglar la primera y repetir):');
+      probs.forEach((c, i) => L.push('  ' + (i + 1) + '. ' + c.fw + ' [POST:' + c.token + ']' +
+        (this.subs[c.code].last === 'TOLERATED' ? ' (tolerada)' : ''), '     -> (pista del firmware para ' + c.token + ')'));
+    }
+    const M = '+--------------------+------------------+--------+';
+    L.push('', '  MICRO (nRF52840), medido en el loop:', M, '| Chequeo            | Valor            | Estado |', M,
+           '| Vueltas del loop   | 196 /s           | OK     |', '| Pila libre minima  | 2716 B           | OK     |',
+           '| Temperatura CPU    | 27.25 C          | OK     |', '| Reinicios por WDT  | normal           | OK     |',
+           '| Alimentacion USB   | VBUS presente    | OK     |', M,
+           '  LED de vida: ' + (this.failing().length ? 'ROJO' : 'VERDE') + ' | ' + this.failing().length +
+           ' subsistema(s) con falla, 0 alerta(s) del micro | TABLA? la repite, TABLA:<s> cambia el periodo', '');
+    return L;
+  },
+  vivo() {
+    const f = this.failing();
+    return '[VIVO] ' + fmtUptime(this.up()) + ' encendido | loop 196 /s | CPU 27.25 C | pila libre min 2716 B | ' +
+      (f.length ? 'FALLAS: ' + f.map(c => c.fw).join(', ') + ' (POST:<subsistema> para repetir una prueba)'
+                : 'POST OK (' + this.allRuns + (this.allRuns === 1 ? ' corrida)' : ' corridas)'));
+  },
+  command(cmd) {
+    cmd = cmd.trim().toUpperCase();
+    if (cmd === 'TABLA?') return this.table();
+    if (cmd === 'VIVO?') return [this.vivo()];
+    if (cmd === 'NODE?') return ['[NODO] N000 (ejemplo) | Bluetooth "WearMe_12_N000"'];
+    if (cmd === 'POST:ALL') return this.runAll().concat(this.table());
+    const m = /^POST:(\w+)$/.exec(cmd);
+    if (m && BY_TOKEN[m[1]]) {
+      const before = this.failing().map(c => c.code).join();
+      const L = ['', '========================================', '        POWER AND SELF TEST (POST)       ',
+                 '========================================', ''].concat(this.runOne(BY_TOKEN[m[1]]));
+      return this.failing().map(c => c.code).join() !== before ? L.concat(this.table()) : L;
+    }
+    return ['[POST] Comando no soportado: ' + cmd + ' (en el ejemplo solo POST:..., TABLA?, VIVO?, NODE?)'];
+  },
+};
+/* ===================== PARSER END ===================== */
+
+/* ===================== DFU BEGIN (carga de firmware por el bootloader; sin DOM: se prueba con node) =====================
+ * Port de adafruit-nrfutil 0.5.3 (nordicsemi/dfu/dfu_transport_serial.py), lo que usa `pio run -t upload`: DFU serie
+ * "legacy" del SDK 11, el que habla el bootloader de la placa. Cada paquete: cabecera SLIP de 4 bytes (secuencia,
+ * tipo 14, largo), carga, CRC16-CCITT, con 0xC0/0xDB escapados y entre 0xC0. El bootloader responde a cada uno. */
+const Dfu = (() => {
+  const START = 3, INIT = 1, DATA = 4, STOP = 5, MODE_APP = 4, CHUNK = 512;
+  const PAGE_ERASE_MS = 89.7, PAGE_WRITE_MS = 102.4, ACK_TIMEOUT_MS = 3000; // tiempos de nrfutil (1 s de ACK, aquí 3)
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  function crc16(data, crc = 0xFFFF) {
+    for (const b of data) {
+      crc = ((crc >> 8) & 0xFF) | ((crc << 8) & 0xFF00);
+      crc ^= b;
+      crc ^= (crc & 0xFF) >> 4;
+      crc ^= (crc << 8) << 4;
+      crc ^= ((crc & 0xFF) << 4) << 1;
+      crc &= 0xFFFF;
+    }
+    return crc;
+  }
+  const u32 = v => [v & 0xFF, (v >>> 8) & 0xFF, (v >>> 16) & 0xFF, (v >>> 24) & 0xFF];
+  function packet(seq, payload) {
+    const len = payload.length;
+    const h0 = seq | (((seq + 1) % 8) << 3) | (1 << 6) | (1 << 7); // con CRC, confiable
+    const h1 = 14 | ((len & 0x0F) << 4);
+    const h2 = (len & 0x0FF0) >> 4;
+    const h3 = (~(h0 + h1 + h2) + 1) & 0xFF;
+    const raw = [h0, h1, h2, h3, ...payload];
+    const crc = crc16(raw);
+    raw.push(crc & 0xFF, (crc >> 8) & 0xFF);
+    const out = [0xC0];
+    for (const b of raw) {
+      if (b === 0xC0) out.push(0xDB, 0xDC);
+      else if (b === 0xDB) out.push(0xDB, 0xDD);
+      else out.push(b);
+    }
+    out.push(0xC0);
+    return Uint8Array.from(out);
+  }
+  // Todos los paquetes en orden: inicio, init (.dat), datos de 512 B, fin
+  function frames(bin, dat) {
+    let seq = 0;
+    const out = [];
+    const add = payload => { seq = (seq + 1) % 8; out.push(packet(seq, payload)); };
+    add([...u32(START), ...u32(MODE_APP), ...u32(0), ...u32(0), ...u32(bin.length)]);
+    add([...u32(INIT), ...dat, 0, 0]);
+    for (let i = 0; i < bin.length; i += CHUNK) add([...u32(DATA), ...bin.subarray(i, i + CHUNK)]);
+    add(u32(STOP));
+    return out;
+  }
+  // Respuestas del bootloader: un frame SLIP (C0 ... C0) por paquete
+  function ackReader() {
+    let buf = [], wake = null;
+    return {
+      push(bytes) {
+        for (const b of bytes) buf.push(b);
+        if (wake) { const w = wake; wake = null; w(); }
+      },
+      async next(timeoutMs) {
+        const t0 = Date.now();
+        while (true) {
+          const a = buf.indexOf(0xC0), b = a >= 0 ? buf.indexOf(0xC0, a + 1) : -1;
+          if (b >= 0) { buf = buf.slice(b + 1); return; }
+          const left = timeoutMs - (Date.now() - t0);
+          if (left <= 0) throw new Error('timeout');
+          await new Promise(r => { wake = r; setTimeout(r, left); });
+        }
+      },
+    };
+  }
+  // io = { write(bytes), ack(timeoutMs) }. onProgress(0..1)
+  async function flash(io, bin, dat, onProgress = () => {}) {
+    const f = frames(bin, dat);
+    const sendAck = async (frame, what) => {
+      if (io.cancelled && io.cancelled()) {
+        throw new Error('Carga cancelada: la tarjeta quedó en modo carga, sin programa. Pulsa “Iniciar prueba y carga” para cargarla de nuevo.');
+      }
+      await io.write(frame);
+      try { await io.ack(ACK_TIMEOUT_MS); } catch (_) { throw new Error('El bootloader no respondió (' + what + ').'); }
+    };
+    await sendAck(f[0], 'inicio');
+    await sleep(Math.max(500, (Math.floor(bin.length / 4096) + 1) * PAGE_ERASE_MS)); // borra la zona de la aplicación
+    await sendAck(f[1], 'inicialización');
+    const data = f.slice(2, -1);
+    for (let k = 0; k < data.length; k++) {
+      await sendAck(data[k], 'paquete ' + (k + 1) + ' de ' + data.length);
+      if (k % 8 === 0) await sleep(PAGE_WRITE_MS);
+      onProgress((k + 1) / data.length);
+    }
+    await sleep(PAGE_WRITE_MS);
+    await sendAck(f[f.length - 1], 'fin');
+    await sleep(PAGE_ERASE_MS + PAGE_WRITE_MS); // activación (banco único)
+  }
+  return { crc16, packet, frames, ackReader, flash, CHUNK };
+})();
+
+/* Firmwares que trae esta página: los pone tools/build_estacion.py (null = página sin firmwares).
+ * { generated, nodes: [3, 4, 5], post: { version, size, crc16, sha256, built, bin, dat }, main: { ... } } (bin/dat en base64) */
+let FIRMWARES = /*FIRMWARES-BEGIN*/null/*FIRMWARES-END*/;
+const b64bytes = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
+/* ===================== DFU END ===================== */
+
+/* ===================== Interfaz ===================== */
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+const STATE_TEXT = { OK: 'OK', FAIL: 'FALLA', SIM: 'FALLA EMULADA', TOL: 'TOLERADA', SKIP: 'NO SE PROBÓ', NONE: 'SIN PROBAR', RUN: 'PROBANDO…' };
+
+let port = null, reader = null, writer = null, userClosed = false, waitingReconnect = false;
+let demoMode = false, demoTimer = null, pinged = false, lastTableAsk = 0;
+const events = [];
+
+emit = (text, kind) => {
+  events.unshift({ t: new Date(), text, kind: kind || 'info' });
+  if (events.length > 200) events.pop();
+  render();
+};
+onNeedTable = () => {
+  if (Date.now() - lastTableAsk < 15000) return;
+  lastTableAsk = Date.now();
+  send('TABLA?', true);
+};
+
+function ago(t) {
+  if (!t) return 'nunca';
+  const s = Math.max(0, Math.round((Date.now() - t) / 1000));
+  if (s < 60) return 'hace ' + s + ' s';
+  if (s < 3600) return 'hace ' + Math.floor(s / 60) + ' min';
+  return 'hace ' + Math.floor(s / 3600) + ' h';
+}
+
+let renderQueued = false;
+function render() {
+  if (renderQueued) return;
+  renderQueued = true;
+  requestAnimationFrame(() => { renderQueued = false; renderNow(); });
+}
+
+function renderNow() {
+  renderStation();
+  renderIdentity();
+  const connected = !!port || demoMode;
+  // Cabecera
+  const conn = $('conn');
+  conn.className = 'pill ' + (demoMode ? 'warn' : port ? 'ok' : waitingReconnect ? 'warn' : '');
+  conn.textContent = demoMode ? 'Ejemplo (sin placa)' : port ? 'Conectado' : waitingReconnect ? 'Reconectando…' : 'Desconectado';
+  $('btnConnect').textContent = port ? 'Desconectar' : 'Conectar placa';
+  $('btnDemo').textContent = demoMode ? 'Salir del ejemplo' : 'Ver ejemplo';
+  const info = [];
+  if (S.node) info.push(S.node);
+  if (S.deviceId) info.push('ID ' + S.deviceId);
+  if (S.uptimeS != null) info.push('encendida ' + fmtUptime(S.uptimeS + (Date.now() - S.uptimeAt) / 1000));
+  $('devinfo').textContent = info.join(' · ');
+  for (const b of document.querySelectorAll('[data-cmd]')) b.disabled = !connected;
+
+  // Veredicto
+  const fails = CATALOG.filter(c => isFailState(S.subs[c.code].state));
+  const tols = CATALOG.filter(c => S.subs[c.code].state === 'TOL');
+  const alerts = Object.entries(S.micro).filter(([, v]) => !v.ok);
+  const bv = batteryVerdict(S.battery);
+  // La placa da la batería por buena (SOC justo bajo 103 %) pero las lecturas muestran que no hay celda
+  const batHidden = bv && !bv.ok && S.subs[0x02].state === 'OK';
+  const silent = port && S.lastLineAt ? (Date.now() - S.lastLineAt) / 1000 : 0;
+  let cls = '', big = '', sub = '', prog = null;
+  if (!ST.busy && ST.stage === 'done' && FIRMWARES && S.fw === FIRMWARES.main.version) {
+    cls = 'ok';
+    big = 'Tarjeta lista';
+    sub = ST.msg + ' Abajo queda el resultado del montaje.';
+  } else if (ST.busy && ['touch', 'flash', 'wait-app', 'auth', 'verify'].includes(ST.stage)) {
+    cls = 'info';
+    big = ST.stage === 'flash' ? 'Cargando firmware…' : ST.stage === 'verify' ? 'Verificando el firmware principal…' : 'Preparando la tarjeta…';
+    sub = ST.msg;
+    prog = ST.prog;
+  } else if (!connected) {
+    cls = waitingReconnect ? 'warn' : '';
+    big = waitingReconnect ? 'Esperando a que la placa vuelva…' : 'Conecta la placa';
+    sub = waitingReconnect ? 'Se perdió el USB (la placa se reinició o se desconectó). Se reconecta sola cuando reaparezca.'
+                           : 'Conecta la placa por USB y pulsa “Conectar placa”. Para practicar sin placa, pulsa “Ver ejemplo”.';
+  } else if (S.post) {
+    cls = 'info';
+    const cur = S.post.current != null ? BY_CODE[S.post.current].title : '';
+    big = S.post.full ? 'Probando la placa…' : 'Probando ' + cur + '…';
+    sub = S.post.full ? (cur ? 'Ahora: ' + cur + ' (' + (S.post.done + 1) + ' de ' + S.post.total + '). Tarda unos 15 s.' : 'Comenzando…')
+                      : 'Espera el resultado.';
+    if (S.post.full) prog = S.post.done / S.post.total;
+  } else if (silent > 25) {
+    cls = 'bad';
+    big = 'La placa no responde';
+    sub = 'Sin datos hace ' + Math.round(silent) + ' s. Puede estar colgada: el watchdog la reinicia a los 60 s. Si el LED no destella, está colgada.';
+  } else if (!S.gotData || CATALOG.every(c => S.subs[c.code].state === 'NONE')) {
+    cls = 'info';
+    big = 'Esperando datos de la placa…';
+    sub = 'Si no aparece nada en unos segundos, pulsa “Probar todo de nuevo”.';
+  } else if (fails.length) {
+    cls = 'bad';
+    big = fails.length === 1 ? 'Montaje con 1 falla' : 'Montaje con ' + fails.length + ' fallas';
+    sub = 'Revisa primero: ' + BY_CODE[fails[0].code].title + '. ' +
+          'Toca la tarjeta en rojo para ver qué hacer.';
+  } else if (batHidden) {
+    cls = 'warn';
+    big = 'La placa pasa, pero la batería no está bien';
+    sub = bv.msg;
+  } else if (alerts.length) {
+    cls = 'warn';
+    big = 'Subsistemas bien, pero el micro tiene alertas';
+    sub = 'Mira el panel “Batería y microcontrolador”.';
+  } else {
+    cls = 'ok';
+    big = 'Montaje OK';
+    sub = 'Todos los subsistemas responden y pasaron sus pruebas' + (tols.length ? ' (' + tols.map(c => c.title).join(', ') + ': tolerado, no instalado o sin conectar).' : '.');
+  }
+  $('verdict').className = cls;
+  $('vBig').textContent = big;
+  $('vSub').textContent = sub;
+  $('vProg').hidden = prog == null;
+  if (prog != null) $('vProg').firstElementChild.style.width = Math.round(prog * 100) + '%';
+
+  // Tarjetas
+  let html = '', group = '';
+  for (const c of CATALOG) {
+    if (c.group !== group) {
+      if (group) html += '</div>';
+      group = c.group;
+      html += '<div class="group"><h3>' + esc(group) + '</h3>';
+    }
+    const s = S.subs[c.code];
+    const hidden = c.code === 0x02 && batHidden;
+    const extra = s.state === 'NONE' || !s.runs ? '' : (c.code === 0x0E && s.sides ? windShort(s) + ' · ' : '') +
+                  (s.fails ? s.fails + '/' + s.runs + ' fallas · ' : '') + ago(s.testedAt);
+    html += '<button class="card ' + (hidden ? 'TOL' : s.state) + '" data-code="' + c.code + '" title="' + esc(c.title + ' — ' + c.chip) + '">' +
+            '<span class="ci"><svg class="ic" aria-hidden="true"><use href="#i-' + (CARD_ICON[c.code] || 'chip') + '"/></svg></span>' +
+            '<span class="t">' + esc(c.title) + '</span><span class="c">' + esc(c.chip) + '</span>' +
+            '<span class="s">' + (hidden ? 'OK · VOLTAJE FUERA DE RANGO' : STATE_TEXT[s.state]) + (s.loopDetected ? ' (loop)' : '') +
+            (s.policy === 'OFF' ? ' · desactivada' : '') + '</span>' +
+            (extra ? '<span class="h">' + esc(extra) + '</span>' : '') + '</button>';
+  }
+  html += '</div>';
+  $('groups').innerHTML = html;
+
+  // Orden de revisión
+  const review = CATALOG.filter(c => isFailState(S.subs[c.code].state) || S.subs[c.code].state === 'TOL');
+  $('reviewPanel').hidden = review.length === 0;
+  $('review').innerHTML = review.map(c => {
+    const s = S.subs[c.code];
+    return '<li><b' + (s.state === 'TOL' ? ' class="tol"' : '') + '>' + esc(c.title) + '</b>' + (s.state === 'TOL' ? ' <span class="muted">(tolerada)</span>' : '') +
+           '<div class="hint">' + esc(c.code === 0x0E && windFailText(s) ? windSideHint(s) : c.steps[0]) + '</div>' +
+           '<button class="linkbtn" data-code="' + c.code + '">Ver qué hacer</button></li>';
+  }).join('');
+
+  // Micro
+  const mk = Object.values(MICRO_KEYS);
+  $('micro').innerHTML = '<div class="mrow ' + (!bv ? '' : bv.ok ? 'ok' : 'bad') + '"><span class="n">Batería</span><span class="v">' +
+    esc(bv ? bv.value : '—') + '</span><span class="x">' +
+    esc(bv ? bv.msg : 'Sin lectura todavía (sale con “Probar todo” o al repetir la prueba del medidor de batería).') + '</span></div>' +
+    mk.map(k => {
+    const v = S.micro[k.id];
+    const cls2 = !v ? '' : v.ok ? 'ok' : 'bad';
+    return '<div class="mrow ' + cls2 + '"><span class="n">' + esc(k.label) + '</span><span class="v">' +
+           esc(v ? v.value : '—') + '</span><span class="x">' +
+           esc(v && !v.ok ? 'Revisar: ' + v.hint + (v.cause ? ' (causa: ' + v.cause + ')' : '') : k.help) + '</span></div>';
+  }).join('');
+
+  // Eventos
+  $('events').innerHTML = events.length ? events.map(e =>
+    '<li><time>' + e.t.toLocaleTimeString() + '</time><span class="' + e.kind + '">' + esc(e.text) + '</span></li>').join('')
+    : '<li class="muted">Todavía nada.</li>';
+}
+
+// Detalle de un subsistema
+function openDetail(code) {
+  const c = BY_CODE[code], s = S.subs[code];
+  const fwHint = s.fwHint.filter(h => !h.startsWith('(pista'));
+  $('dlgBody').innerHTML =
+    '<h2>' + esc(c.title) + '</h2>' +
+    '<div><span class="pill ' + (isFailState(s.state) ? 'bad' : s.state === 'OK' ? 'ok' : s.state === 'TOL' ? 'warn' : '') + '">' +
+      STATE_TEXT[s.state] + '</span> <span class="muted">' + esc(c.chip) + ' · probado ' + ago(s.testedAt) +
+      (s.runs ? ' · ' + s.fails + ' de ' + s.runs + ' veces falló' : '') + ' · política ' + esc(s.policy) + '</span></div>' +
+    (code === 0x0E && s.sides ? '<div><h4>Por lado</h4>' + WIND_SIDES.map(([k, n]) => {
+      const d = s.sides[k];
+      return '<div><span class="pill ' + (!d ? '' : d.ok ? 'ok' : 'bad') + '">' + n + (d ? ' (canal ' + d.channel + ')' : '') + ': ' +
+             (!d ? 'sin dato' : d.ok ? 'OK' : 'FALLA') + '</span> <span class="muted">' + esc(d ? d.text : '') + '</span></div>';
+    }).join('') + '</div>' : '') +
+    '<div><h4>Qué es</h4>' + esc(c.what) + '</div>' +
+    '<div><h4>Qué revisar</h4><ol>' + c.steps.map(x => '<li>' + esc(x) + '</li>').join('') + '</ol></div>' +
+    (fwHint.length ? '<div><h4>Lo que dice la placa</h4>' + fwHint.map(esc).join('<br>') + '</div>' : '') +
+    '<div><h4>Detalle de la última prueba</h4><pre>' + (s.details.length ? esc(s.details.join('\n')) : 'Sin datos todavía.') + '</pre></div>' +
+    '<div class="actions"><button class="primary" id="dlgRun"' + (port || demoMode ? '' : ' disabled') +
+      '>Repetir esta prueba</button><button id="dlgClose">Cerrar</button></div>';
+  $('dlgRun').onclick = () => { send('POST:' + c.token); $('dlg').close(); };
+  $('dlgClose').onclick = () => $('dlg').close();
+  $('dlg').showModal();
+}
+
+document.addEventListener('click', e => {
+  const card = e.target.closest('[data-code]');
+  if (card) openDetail(+card.dataset.code);
+  const btn = e.target.closest('[data-cmd]');
+  if (btn) send(btn.dataset.cmd);
+});
+
+// Consola
+const rawEl = $('raw');
+function rawAppend(text, tx) {
+  const atBottom = rawEl.scrollTop + rawEl.clientHeight >= rawEl.scrollHeight - 30;
+  const span = document.createElement('span');
+  if (tx) span.className = 'tx';
+  span.textContent = text + '\n';
+  rawEl.appendChild(span);
+  while (rawEl.childNodes.length > 3000) rawEl.removeChild(rawEl.firstChild);
+  if (atBottom) rawEl.scrollTop = rawEl.scrollHeight;
+}
+function feed(line) {
+  rawAppend(line);
+  pinged = false;
+  try { parseLine(line); } catch (err) { console.error(err, line); }
+  render();
+}
+$('sendForm').addEventListener('submit', e => {
+  e.preventDefault();
+  const v = $('sendInput').value.trim();
+  if (v) send(v);
+  $('sendInput').value = '';
+});
+
+// Envío de comandos
+const enc = new TextEncoder();
+async function send(cmd, quiet) {
+  rawAppend('> ' + cmd, true);
+  if (!quiet && cmd.startsWith('POST:')) {
+    const c = BY_TOKEN[cmd.slice(5)];
+    emit(cmd === 'POST:ALL' ? 'Pediste el POST completo.' : 'Pediste repetir: ' + (c ? c.title : cmd) + '.', 'info');
+  }
+  if (demoMode) {
+    const lines = Demo.command(cmd);
+    let i = 0;
+    const step = () => { if (!demoMode) return; for (let k = 0; k < 4 && i < lines.length; k++) feed(lines[i++]); if (i < lines.length) demoTimer = setTimeout(step, 60); };
+    demoTimer = setTimeout(step, 150);
+    return;
+  }
+  if (!writer) return;
+  try { await writer.write(enc.encode(cmd + '\n')); } catch (err) { emit('No se pudo enviar: ' + err.message, 'bad'); }
+}
+
+// Puerto serie (Web Serial)
+async function openPort(p) {
+  // Bootloader (tarjeta sin programa o esperando firmware): ese puerto es solo para cargar, no para el diagnóstico
+  if (portKind(p) === 'bootloader') {
+    blNotice = true;
+    emit('La tarjeta está en modo carga (sin programa): pulsa “Iniciar prueba y carga”.', 'warn');
+    render();
+    return;
+  }
+  try {
+    await p.open({ baudRate: 115200 });
+  } catch (err) {
+    emit('No se pudo abrir el puerto: ' + err.message + ' (¿está abierto en el monitor de PlatformIO? ciérralo).', 'bad');
+    return;
+  }
+  try { await p.setSignals({ dataTerminalReady: true, requestToSend: true }); } catch (_) {}
+  port = p; userClosed = false; waitingReconnect = false;
+  S.lastLineAt = Date.now();
+  writer = p.writable.getWriter();
+  emit('Conectado a la placa.', 'ok');
+  render();
+  readLoop(p);
+  lastAppPort = p;
+  setTimeout(() => { send('NODE?', true); send('BOOT?', true); send('LORA:CRED?', true); send('TABLA?', true); }, 500);
+}
+
+async function readLoop(p) {
+  const decoder = new TextDecoderStream();
+  const piped = p.readable.pipeTo(decoder.writable).catch(() => {});
+  reader = decoder.readable.getReader();
+  let buf = '';
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += value;
+      let i;
+      while ((i = buf.indexOf('\n')) >= 0) {
+        feed(buf.slice(0, i));
+        buf = buf.slice(i + 1);
+      }
+      if (buf.length > 4000) { feed(buf); buf = ''; }
+    }
+  } catch (_) {
+  } finally {
+    try { reader.releaseLock(); } catch (_) {}
+  }
+  await Promise.race([piped, new Promise(r => setTimeout(r, 2000))]);
+  try { writer.releaseLock(); } catch (_) {}
+  try { await p.close(); } catch (_) {}
+  port = null; writer = null; reader = null;
+  if (!userClosed) {
+    waitingReconnect = true;
+    emit('Se perdió la conexión USB (la placa se reinició o se desconectó). Se reconecta sola al volver.', 'warn');
+  } else {
+    emit('Desconectado.', 'info');
+  }
+  render();
+}
+
+async function disconnect() {
+  userClosed = true; waitingReconnect = false;
+  if (reader) { try { await reader.cancel(); } catch (_) {} }
+}
+
+$('btnConnect').addEventListener('click', async () => {
+  if (port) return disconnect();
+  if (demoMode) stopDemo();
+  if (!('serial' in navigator)) {
+    alert('Este navegador no puede usar el puerto serie. Abre este archivo con Microsoft Edge o Google Chrome.');
+    return;
+  }
+  try {
+    // 0x2886 = VID de la placa (USB_VID en platformio.ini); si no aparece, se muestran todos los puertos
+    let p;
+    try { p = await navigator.serial.requestPort({ filters: BOARD_VIDS.map(v => ({ usbVendorId: v })) }); }
+    catch (err) {
+      if (err.name !== 'NotFoundError') throw err;
+      if (!confirm('No se eligió ninguna placa Wearme. ¿Mostrar todos los puertos COM?')) return;
+      p = await navigator.serial.requestPort();
+    }
+    await openPort(p);
+  } catch (err) {
+    if (err.name !== 'NotFoundError') emit('Error al conectar: ' + err.message, 'bad');
+  }
+});
+
+if ('serial' in navigator) {
+  // Al reiniciarse, la placa desaparece y vuelve como puerto USB: reconexión automática
+  navigator.serial.addEventListener('connect', e => {
+    if (ST.busy) return; // la estación maneja sus propios cambios de puerto
+    if (waitingReconnect && !port) setTimeout(() => openPort(e.target), 700);
+  });
+  // Placa ya autorizada antes: se conecta sola al abrir la página
+  navigator.serial.getPorts().then(ps => {
+    const app = ps.find(p => portKind(p) === 'app'), bl = ps.find(p => portKind(p) === 'bootloader');
+    if (!port && !demoMode && (app || bl)) openPort(app || bl);
+  });
+}
+
+/* ===================== Estación de montaje =====================
+ * 1. Carga el firmware de prueba (POST) por el bootloader: toque a 1200 baudios (lo mismo que hace PlatformIO) para
+ *    reiniciar en modo carga, o directo si la tarjeta no tiene programa (el bootloader se queda esperando).
+ * 2. Espera el resultado del POST del arranque. Si hay fallas se detiene: corregir, "Probar todo de nuevo", "Continuar".
+ * 3. Graba el nodo con NODE:SET=<n> (lo hace el firmware de prueba): así el firmware principal, en su primer arranque,
+ *    lo encuentra guardado y no graba ni usa el nodo con el que se compiló (WEARME_NODE).
+ * 4. Carga el firmware principal y verifica con NODE? y BOOT? que quedó el nodo y la versión correctos. */
+// VID de Seeed (0x2886, el de platformio.ini) y de Adafruit (0x239A: también lo usan los sketches de Arduino
+// compilados como "Feather nRF52840", p. ej. 0x239A:0x8029)
+const BOARD_VIDS = [0x2886, 0x239A];
+const FW_MAX_BYTES = 0xE9000 - 0x89000; // tools/pio_ota.py: más grande borraría el contexto de LoRaWAN
+const ST = { busy: false, stage: '', msg: '', cls: '', prog: null, steps: ['', '', '', ''], auth: '', cont: false, nodeWait: null, cancel: false };
+let lastAppPort = null, blNotice = false;
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const pad3 = n => String(n).padStart(3, '0');
+const nodeNum = name => { const m = /NODO-(\d+)/.exec(name || ''); return m ? +m[1] : 0; };
+
+function portKind(p) {
+  const i = p.getInfo ? p.getInfo() : {};
+  if (!BOARD_VIDS.includes(i.usbVendorId)) return 'otro';
+  // Convención de Adafruit y Seeed: PID con el bit alto (0x8xxx) = un programa corriendo (el nuestro 0x8055, un
+  // sketch de Arduino 0x8029...); sin él = el bootloader (0x0055). Así a cualquier programa se le hace el toque de
+  // 1200 baudios para entrar en modo carga, y no hace falta el doble RESET si la tarjeta tenía otro código
+  return (i.usbProductId & 0x8000) ? 'app' : 'bootloader';
+}
+async function findPort(kind) {
+  if (!('serial' in navigator)) return null;
+  return (await navigator.serial.getPorts()).find(p => portKind(p) === kind) || null;
+}
+function stSet(stage, msg, cls, prog) {
+  ST.stage = stage; ST.msg = msg; ST.cls = cls || 'info'; ST.prog = prog == null ? null : prog;
+  render();
+}
+function stStep(i, state) { ST.steps[i] = state; render(); }
+class StationStop extends Error {}
+
+// Espera hasta que cond() sea verdadera; poll() se repite cada pollMs (p. ej. volver a preguntar NODE?)
+async function waitFor(cond, timeoutMs, errMsg, poll, pollMs = 5000) {
+  const t0 = Date.now();
+  let lastPoll = 0;
+  while (Date.now() - t0 < timeoutMs) {
+    if (ST.cancel) throw new StationStop('Cancelado.');
+    if (cond()) return true;
+    if (poll && Date.now() - lastPoll >= pollMs) { lastPoll = Date.now(); poll(); }
+    await sleep(200);
+  }
+  if (cond()) return true;
+  if (errMsg) throw new StationStop(errMsg);
+  return false;
+}
+
+// Espera un puerto de ese tipo ya autorizado; si no aparece en 3 s, ofrece autorizarlo (un clic, solo la primera vez)
+async function waitPort(kind, timeoutMs, authText) {
+  const t0 = Date.now();
+  while (Date.now() - t0 < timeoutMs) {
+    if (ST.cancel) { ST.auth = ''; throw new StationStop('Cancelado.'); }
+    const p = await findPort(kind);
+    if (p) { ST.auth = ''; render(); return p; }
+    if (!ST.auth && Date.now() - t0 > 3000) { ST.auth = authText; render(); }
+    await sleep(300);
+  }
+  ST.auth = ''; render();
+  return null;
+}
+$('btnAuth').addEventListener('click', async () => {
+  try { await navigator.serial.requestPort({ filters: BOARD_VIDS.map(v => ({ usbVendorId: v })) }); } catch (_) {}
+});
+
+// Cierra el diagnóstico para dejar libre el puerto
+async function closeDiagPort() {
+  const p = port;
+  if (!p) return null;
+  userClosed = true; waitingReconnect = false;
+  // Con límite de tiempo: si el lector no termina, se fuerza el cierre para poder reabrir a 1200 baudios
+  if (reader) await Promise.race([reader.cancel().catch(() => {}), sleep(1500)]);
+  for (let i = 0; i < 30 && port; i++) await sleep(100);
+  if (port) {
+    try { writer.releaseLock(); } catch (_) {}
+    try { await p.close(); } catch (_) {}
+    port = null; writer = null; reader = null;
+  }
+  return p;
+}
+// Toque a 1200 baudios: el core Adafruit (TinyUSB) reinicia en el bootloader en modo DFU serie
+async function touch1200(p) {
+  for (let i = 0; i < 10; i++) { // el cierre anterior puede tardar un momento en liberar el puerto
+    try { await p.open({ baudRate: 1200 }); break; } catch (e) { if (i === 9) throw e; await sleep(200); }
+  }
+  try { await p.setSignals({ dataTerminalReady: false }); } catch (_) {}
+  await sleep(100);
+  await p.close();
+}
+async function dfuOnPort(p, bin, dat, onProgress) {
+  await p.open({ baudRate: 115200, bufferSize: 8192 });
+  try { await p.setSignals({ dataTerminalReady: false }); await sleep(50); await p.setSignals({ dataTerminalReady: true }); } catch (_) {}
+  await sleep(100);
+  const w = p.writable.getWriter(), r = p.readable.getReader(), acks = Dfu.ackReader();
+  let alive = true;
+  (async () => {
+    try { while (alive) { const { value, done } = await r.read(); if (done) break; if (value) acks.push(value); } } catch (_) {}
+  })();
+  try {
+    await Dfu.flash({ write: b => w.write(b), ack: t => acks.next(t), cancelled: () => ST.cancel }, bin, dat, onProgress);
+  } finally {
+    alive = false;
+    try { await r.cancel(); } catch (_) {}
+    try { r.releaseLock(); } catch (_) {}
+    try { w.releaseLock(); } catch (_) {}
+    try { await p.close(); } catch (_) {}
+  }
+}
+
+// kind: 'post' (firmware de prueba de la estación), 'main' (principal) o 'test' (un código de prueba de la base, en f)
+async function loadFirmware(kind, f = FIRMWARES[kind]) {
+  const name = { post: 'firmware de prueba', main: 'firmware principal', test: 'código de prueba' }[kind];
+  const bin = b64bytes(f.bin), dat = b64bytes(f.dat);
+  if (bin.length > FW_MAX_BYTES) throw new StationStop('El ' + name + ' pesa ' + bin.length + ' B y pasa el límite de ' + FW_MAX_BYTES + ' B (borraría el contexto de LoRaWAN). No se carga.');
+  if (bin.length !== f.size || Dfu.crc16(bin) !== f.crc16) {
+    throw new StationStop('El ' + name + ' está dañado' + (kind === 'test' ? ' (bájalo de nuevo o vuelve a subirlo).' : '. Vuelve a generar la página con tools/build_estacion.py.'));
+  }
+  // 1. Modo carga
+  let bl = await findPort('bootloader');
+  if (!bl) {
+    // El que está conectado ahora (puede ser otro programa, con otro USB) antes que el último que se usó
+    const app = (port && portKind(port) === 'app') ? await closeDiagPort() : ((await findPort('app')) || lastAppPort);
+    if (app) {
+      stSet('touch', 'Reiniciando la tarjeta en modo carga…');
+      try { await touch1200(app); } catch (_) {}
+    }
+    bl = await waitPort('bootloader', 20000, 'Autorizar el puerto de carga (solo la primera vez)');
+  }
+  if (!bl) throw new StationStop('La tarjeta no entró en modo carga. Desconecta y vuelve a conectar el USB (o pulsa dos veces RESET) y reintenta.');
+  blNotice = false;
+  // 2. Carga
+  const label = x => 'Cargando el ' + name + '… ' + Math.round(x * 100) + ' %. No desconectes la tarjeta.';
+  stSet('flash', label(0), 'info', 0);
+  await dfuOnPort(bl, bin, dat, x => stSet('flash', label(x), 'info', x));
+  emit('Se cargó el ' + name + ' ' + f.version + ' (' + bin.length + ' B).', 'ok');
+  // 3. Arranca como aplicación
+  stSet('wait-app', 'Arrancando el ' + name + '…');
+  // Lo que llegue ahora es del firmware nuevo. Con el principal se conserva el resultado del montaje recién probado
+  // (el principal no imprime la tabla del POST)
+  const keepId = S.deviceId;
+  const keep = kind === 'main' ? { subs: S.subs, micro: S.micro, battery: S.battery, led: S.led, gotData: S.gotData } : null;
+  S = newState();
+  if (keep) Object.assign(S, keep);
+  // El principal se carga en la misma tarjeta (y no informa su DEVICEID): se conserva. El de prueba puede ir a otra
+  // tarjeta: se vuelve a leer (NODE?), si no la base registraría la tarjeta anterior
+  S.deviceId = kind === 'main' ? keepId : '';
+  // Un código de prueba (p. ej. de Arduino) puede anunciarse con otro USB: si no aparece como la tarjeta, no es error
+  const app = await waitPort('app', kind === 'test' ? 10000 : 30000, 'Autorizar el puerto de la tarjeta (solo la primera vez)');
+  if (!app && kind === 'test') return false;
+  if (!app) throw new StationStop('La tarjeta no volvió después de la carga. Revisa el cable USB y reintenta.');
+  await sleep(300);
+  await openPort(app);
+  if (!port) throw new StationStop('No se pudo abrir el puerto de la tarjeta después de la carga.');
+  return true;
+}
+
+const failing = () => CATALOG.filter(c => isFailState(S.subs[c.code].state));
+// Firmware de prueba corriendo: lo dice BOOT? (S.fw); sin esa respuesta, que haya llegado una tabla del POST
+const runningPost = () => S.fw ? /POST-TEST/.test(S.fw) : S.postCount > 0;
+
+async function stepDiag() {
+  stStep(1, 'doing');
+  stSet('diag', 'Probando el montaje…');
+  await waitFor(() => S.tableAt && !S.post, 120000, 'La tarjeta no entregó el resultado del POST (revisa la consola).',
+                () => send('TABLA?', true), 20000);
+  const f = failing();
+  await logTest('montaje', f.length ? 'FALLA' : 'OK', f.map(c => c.token));
+  if (f.length) {
+    stStep(1, 'fail');
+    ST.cont = true;
+    throw new StationStop('Montaje con fallas: ' + f.map(c => c.title).join(', ') +
+      '. Corrige, pulsa “Probar todo de nuevo” y después “Continuar”.');
+  }
+  stStep(1, 'done');
+}
+
+async function stepNode() {
+  stStep(2, 'doing');
+  S.nodeAt = 0;
+  await waitFor(() => S.nodeAt, 8000, 'La tarjeta no respondió NODE?.', () => send('NODE?', true), 3000);
+  // Otra tarjeta: lo que la estación eligió sola para la anterior no vale para esta (el DEVICEID llega después del
+  // número de nodo: se espera; un firmware de prueba viejo no lo manda)
+  if (WEB) await needDeviceId();
+  else if (!S.deviceId) await waitFor(() => S.deviceId, 1500, null);
+  if (ST.doneDevice && S.deviceId && S.deviceId !== ST.doneDevice && ST.nodeAuto) $('nodeSel').value = '';
+  ST.doneDevice = '';
+  const stored = S.nodeStored ? nodeNum(S.node) : 0;
+  let pick = $('nodeSel').value, n = +pick || 0, created = false;
+  if (WEB) {
+    await needDeviceId();
+    const mine = WEBSTATE.nodes.find(x => x.device_id === S.deviceId);
+    if (!pick) { // Automático
+      if (mine) n = mine.node;
+      else if (stored) n = stored;
+      else {
+        // Sin número de nodo: si tiene credenciales grabadas que están en la base, es ese nodo; si no son de la base,
+        // no se pisan sin preguntar; sin credenciales, nodo nuevo
+        S.loraAt = 0;
+        await waitFor(() => S.loraAt, 8000, 'La tarjeta no respondió LORA:CRED?.', () => send('LORA:CRED?', true), 3000);
+        const saved = /^guardadas/.test(S.lora.flash);
+        const known = saved && WEBSTATE.nodes.find(x => x.dev_eui === S.lora.dev);
+        if (known) n = known.node;
+        else if (saved) {
+          ST.cont = true;
+          throw new StationStop('La tarjeta tiene credenciales LoRaWAN grabadas (DevEUI ' + fmtHex(S.lora.dev) +
+            ') que no están en la base. Elige su nodo en la lista (o “Nuevo” para reemplazarlas) y pulsa “Continuar”.');
+        } else pick = 'new';
+      }
+      if (n) { $('nodeSel').value = String(n); ST.nodeAuto = true; }
+    }
+    if (pick === 'new') {
+      if (mine) {
+        n = mine.node; // ya tiene uno en la base: no se gasta otro número
+        emit('Esta tarjeta ya tiene NODO-' + pad3(n) + ' en la base: se usa ese.', 'warn');
+      } else {
+        if (stored && !confirm('Esta tarjeta ya está grabada como NODO-' + pad3(stored) + '. ¿Crearle un nodo NUEVO (NODO-' +
+                               pad3(nextNode()) + ') con credenciales nuevas?')) {
+          throw new StationStop('Cancelado: la tarjeta sigue siendo NODO-' + pad3(stored) + '.');
+        }
+        n = await createNode();
+        created = true;
+        $('nodeSel').value = String(n); ST.nodeAuto = true;
+      }
+    }
+  } else if (!n && stored) { n = stored; $('nodeSel').value = String(n); }
+  if (!n) {
+    stSet('node', 'Elige el nodo de esta tarjeta (lista de arriba) para continuar.', 'warn');
+    n = await new Promise(res => { ST.nodeWait = res; });
+    if (!n) throw new StationStop('Cancelado.');
+  }
+  if (!created && stored && stored !== n &&
+      !confirm('Esta tarjeta ya está grabada como NODO-' + pad3(stored) + '. ¿Cambiarla a NODO-' + pad3(n) + '?')) {
+    throw new StationStop('Cancelado: la tarjeta sigue siendo NODO-' + pad3(stored) + '.');
+  }
+  if (created) {
+    // ya quedó grabado y registrado
+  } else if (stored !== n) {
+    await writeNode(n);
+  } else if (WEB) {
+    await assignInDb(n, false); // ya lo tiene grabado: se registra en la base
+  }
+  S.nodeAt = 0;
+  await waitFor(() => S.nodeAt, 8000, 'La tarjeta no respondió NODE?.', () => send('NODE?', true), 3000);
+  if (!(S.nodeStored && nodeNum(S.node) === n)) throw new StationStop('El nodo no quedó grabado (la tarjeta dice ' + S.node + ').');
+  // Sin credenciales en la flash, el principal grabaría las del nodo con el que se compiló
+  S.loraAt = 0;
+  await waitFor(() => S.loraAt, 8000, 'La tarjeta no respondió LORA:CRED?.', () => send('LORA:CRED?', true), 3000);
+  if (!/^guardadas/.test(S.lora.flash)) {
+    throw new StationStop('La tarjeta no tiene credenciales LoRaWAN grabadas (' + S.lora.flash + '). Grábalas en “Cambiar nodo o credenciales…” y pulsa “Continuar”.');
+  }
+  ST.doneDevice = S.deviceId || ''; ST.nodeAuto = true; // la próxima tarjeta empieza otra vez en "Automático"
+  stStep(2, 'done');
+  return n;
+}
+
+async function stepMain(n) {
+  stStep(3, 'doing');
+  await loadFirmware('main');
+  const want = 'NODO-' + pad3(n), ver = FIRMWARES.main.version;
+  stSet('verify', 'Verificando el firmware principal (' + want + ', ' + ver + ')…');
+  await waitFor(() => S.node === want && S.fw === ver, 120000,
+    'El firmware principal arrancó pero no confirmó ' + want + ' y la versión ' + ver + ' (revisa la consola).',
+    () => { send('NODE?', true); send('BOOT?', true); }, 5000);
+  await logTest('principal', 'OK', [], n);
+  stStep(3, 'done');
+  stSet('done', 'LISTO: ' + want + ' con el firmware principal ' + ver + '. Ya puedes desconectar la tarjeta.', 'ok');
+  emit('Tarjeta terminada: ' + want + ', firmware ' + ver + '.', 'ok');
+}
+
+// mode: 'all' (todo), 'continue' (desde el nodo, tras corregir), 'post' (solo prueba), 'main' (solo principal)
+async function stationRun(mode) {
+  if (ST.busy || !FIRMWARES) return;
+  if (!('serial' in navigator)) { alert('Abre esta página con Microsoft Edge o Google Chrome.'); return; }
+  if (demoMode) stopDemo();
+  if (ID.busy) return;
+  ST.busy = true; ST.cont = false; ST.cancel = false;
+  if (mode !== 'continue') ST.steps = ['', '', '', ''];
+  stSet('start', 'Comenzando…'); // borra el mensaje de la tarjeta anterior
+  try {
+    // Ninguna tarjeta autorizada todavía: se pide elegirla (un clic, solo la primera vez)
+    if (!port && !(await findPort('app')) && !(await findPort('bootloader'))) {
+      stSet('auth', 'Elige la tarjeta en la ventana del navegador.', 'warn');
+      try { await navigator.serial.requestPort({ filters: BOARD_VIDS.map(v => ({ usbVendorId: v })) }); }
+      catch (_) { throw new StationStop('No se eligió ninguna tarjeta.'); }
+    }
+    if (mode === 'all' || mode === 'post') {
+      stStep(0, 'doing');
+      await loadFirmware('post');
+      stStep(0, 'done');
+      await stepDiag();
+      if (mode === 'post') { stSet('done', 'Firmware de prueba cargado: montaje OK.', 'ok'); return; }
+    }
+    if (mode === 'continue') {
+      if (!port || !runningPost()) throw new StationStop('La tarjeta no tiene el firmware de prueba: usa “Iniciar prueba y carga”.');
+      await stepDiag();
+    }
+    let n;
+    if (mode === 'main') {
+      // Sin el firmware de prueba no se puede grabar el nodo: solo se permite si la tarjeta ya lo tiene grabado
+      if (!port) throw new StationStop('Conecta la tarjeta (con el firmware de prueba o el principal ya cargado).');
+      S.nodeAt = 0; S.fwAt = 0;
+      await waitFor(() => S.nodeAt && S.fwAt, 8000, 'La tarjeta no respondió NODE?/BOOT?.',
+                    () => { send('NODE?', true); send('BOOT?', true); }, 3000);
+      if (runningPost()) n = await stepNode();
+      else if (S.fw === FIRMWARES.main.version || S.nodeStored === null) n = nodeNum(S.node);
+      if (!n) throw new StationStop('La tarjeta no tiene nodo grabado: usa “Iniciar prueba y carga”.');
+    } else {
+      n = await stepNode();
+    }
+    await stepMain(n);
+  } catch (e) {
+    ST.steps = ST.steps.map(x => x === 'doing' ? 'fail' : x);
+    stSet('error', e instanceof StationStop ? e.message : 'Error: ' + e.message, e instanceof StationStop && ST.cont ? 'warn' : 'bad');
+    emit(ST.msg, 'bad');
+    // Si el diagnóstico quedó cerrado, se vuelve a abrir
+    if (!port) { const p = await findPort('app'); if (p) await openPort(p); }
+  } finally {
+    ST.busy = false; ST.auth = ''; ST.nodeWait = null;
+    render();
+  }
+}
+
+$('btnStart').addEventListener('click', () => stationRun('all'));
+$('btnCancel').addEventListener('click', () => {
+  ST.cancel = true;
+  if (ST.nodeWait) { const r = ST.nodeWait; ST.nodeWait = null; r(0); }
+  stSet(ST.stage, 'Cancelando…', 'warn', ST.prog);
+});
+$('btnContinue').addEventListener('click', () => stationRun('continue'));
+$('btnOnlyPost').addEventListener('click', () => stationRun('post'));
+$('btnOnlyMain').addEventListener('click', () => stationRun('main'));
+$('nodeSel').addEventListener('change', () => {
+  ST.nodeAuto = false; // elegido por el operador
+  if (ST.nodeWait && +$('nodeSel').value) { const r = ST.nodeWait; ST.nodeWait = null; r(+$('nodeSel').value); }
+});
+
+function initStation() {
+  const sel = $('nodeSel');
+  if (!FIRMWARES) {
+    for (const id of ['btnStart', 'btnOnlyPost', 'btnOnlyMain', 'nodeSel']) $(id).disabled = true;
+    $('noFw').hidden = WEB;
+    $('stMsg').textContent = WEB ? 'No se pudo preparar la estación: ' + (WEBSTATE.error || 'sin conexión') + '. Vuelve a cargar la página.' : '';
+    $('stMsg').className = WEB ? 'bad' : '';
+    $('fwInfo').textContent = 'Sin firmwares.';
+    return;
+  }
+  const keep = sel.value;
+  for (const o of [...sel.querySelectorAll('option')]) if (o.value) o.remove(); // se puede volver a llenar
+  // Web: "Automático" = el nodo que la tarjeta ya tiene (en la base o en su flash) o, si no tiene, uno nuevo
+  sel.firstElementChild.textContent = WEB ? 'Automático' : 'Elegir…';
+  if (WEB) {
+    const o = document.createElement('option');
+    o.value = 'new'; o.textContent = 'Nuevo: NODO-' + pad3(nextNode()) + ' (se genera)';
+    sel.appendChild(o);
+  }
+  for (const n of FIRMWARES.nodes) {
+    const o = document.createElement('option');
+    o.value = String(n); o.textContent = nodeLabel(n);
+    sel.appendChild(o);
+  }
+  if (keep && sel.querySelector('option[value="' + keep + '"]')) sel.value = keep;
+  const d = f => f.version + ' (' + f.size.toLocaleString('es') + ' B, compilado ' + f.built + ', SHA-256 ' + f.sha256.slice(0, 12) + '…)';
+  $('fwInfo').textContent = 'Prueba: ' + d(FIRMWARES.post) + ' · Principal: ' + d(FIRMWARES.main) +
+    (FIRMWARES.main.uploaded_by ? ' [subido por ' + FIRMWARES.main.uploaded_by + ' el ' + FIRMWARES.main.uploaded_at + ' UTC]' : '') +
+    ' · Página generada ' + FIRMWARES.generated + '. Nodos disponibles: ' + FIRMWARES.nodes.join(', ') + '.' +
+    (WEBSTATE.tests && WEBSTATE.tests.length ? ' Programas de prueba: ' + WEBSTATE.tests.map(f => f.version).join(', ') + '.' : '');
+  // Programas de prueba: el botón solo aparece si hay alguno subido (la lista, solo si hay más de uno)
+  const tests = WEBSTATE.tests || [], keepT = $('testSel').value;
+  $('testCtl').hidden = !tests.length;
+  $('testSel').hidden = tests.length < 2;
+  $('testSel').innerHTML = tests.map(f => '<option value="' + f.id + '">' + esc(f.version) + ' (' + f.size.toLocaleString('es') + ' B, subido ' +
+    esc(String(f.uploaded_at).slice(0, 10)) + ')</option>').join('');
+  if (keepT && tests.some(f => String(f.id) === keepT)) $('testSel').value = keepT;
+  $('btnOnlyTest').textContent = tests.length === 1 ? 'Cargar programa de prueba: ' + tests[0].version : 'Cargar programa de prueba';
+}
+
+function renderStation() {
+  for (let i = 0; i < 4; i++) $('st' + i).className = 'step ' + (ST.steps[i] || '');
+  if (FIRMWARES) {
+    let msg = ST.msg, cls = ST.cls;
+    if (!msg) {
+      msg = WEB ? (blNotice ? 'Tarjeta en modo carga (sin programa): pulsa “Iniciar prueba y carga”.'
+                            : 'Pulsa “Iniciar prueba y carga”.') +
+                  ' Con “Automático”, la tarjeta conserva su nodo o, si no tiene, se le crea el siguiente (NODO-' + pad3(nextNode()) + ').'
+          : blNotice ? 'Tarjeta en modo carga (sin programa): elige el nodo y pulsa “Iniciar prueba y carga”.'
+                     : 'Elige el nodo de la tarjeta y pulsa “Iniciar prueba y carga”.';
+      cls = blNotice ? 'warn' : 'muted';
+    }
+    $('stMsg').textContent = msg;
+    $('stMsg').className = cls;
+    for (const id of ['btnStart', 'btnOnlyPost', 'btnOnlyMain', 'btnOnlyTest', 'testSel']) $(id).disabled = ST.busy || ID.busy;
+    $('btnContinue').hidden = !(ST.cont && !ST.busy);
+    // Nodo grabado que no está en la tabla (credenciales propias): se agrega a la lista
+    const sn = S.nodeStored ? nodeNum(S.node) : 0;
+    if (sn && !FIRMWARES.nodes.includes(sn) && !$('nodeSel').querySelector('option[value="' + sn + '"]')) {
+      const o = document.createElement('option');
+      o.value = String(sn); o.textContent = 'NODO-' + pad3(sn) + ' (credenciales propias)';
+      $('nodeSel').appendChild(o);
+    }
+  }
+  $('stProg').hidden = ST.prog == null;
+  if (ST.prog != null) $('stProg').firstElementChild.style.width = Math.round(ST.prog * 100) + '%';
+  $('btnCancel').hidden = !ST.busy;
+  $('btnAuth').hidden = !ST.auth;
+  $('btnAuth').textContent = ST.auth;
+  // La lista sigue al nodo grabado en la tarjeta mientras el operador no elija uno a mano (si no, tras cambiar las
+  // credenciales quedaría el nodo anterior y la estación lo volvería a grabar)
+  if (S.nodeStored && !ST.busy && nodeNum(S.node) && (!$('nodeSel').value || ST.nodeAuto)) {
+    $('nodeSel').value = String(nodeNum(S.node));
+    ST.nodeAuto = true;
+  }
+}
+
+/* ===================== Identidad y credenciales LoRaWAN =====================
+ * Opción 1: NODE:SET=<n> (número + credenciales de la tabla; lo tienen los dos firmwares).
+ * Opción 2: LORA:CRED:RESET, LORA:CRED:SET <DevEUI> <JoinEUI> <AppKey> y NODE:ID=<n> (solo el firmware de prueba). */
+const ID = { busy: false, showKey: false, written: null };
+const HEX16 = /^[0-9A-F]{16}$/, HEX32 = /^[0-9A-F]{32}$/;
+const fmtHex = h => h ? h.match(/.{1,2}/g).join(' ') : '—';
+
+function idMsg(text, cls) { $('idMsg').textContent = text; $('idMsg').className = cls || 'info'; }
+
+function renderIdentity() {
+  const L = S.lora;
+  $('operator').textContent = WEB ? (WEBSTATE.user ? WEBSTATE.user + (WEBSTATE.admin ? ' (admin)' : '') : 'sin sesión') : '';
+  $('idNode').textContent = S.node ? S.node + (S.nodeStored === false ? ' (sin guardar)' : '') : '—';
+  $('idDev').textContent = fmtHex(L.dev);
+  $('idJoin').textContent = fmtHex(L.join);
+  $('idKey').textContent = L.key ? (ID.showKey ? fmtHex(L.key) : L.key.slice(0, 4) + ' ···· ' + L.key.slice(-4)) : '—';
+  $('idKeyShow').hidden = !L.key;
+  $('idKeyShow').textContent = ID.showKey ? 'ocultar' : 'mostrar';
+  let note = '';
+  if (ID.written) note = 'Grabadas en la flash: NODO-' + pad3(ID.written.n) + ', DevEUI ' + fmtHex(ID.written.dev) + '. Se usan al reiniciar y con el firmware principal.';
+  else if (/OTRAS/.test(L.flash)) note = 'En la flash hay otras credenciales: se usan al reiniciar.';
+  else if (/^sin credenciales/.test(L.flash)) note = 'La tarjeta no tiene credenciales grabadas.';
+  else if (L.src) note = 'Origen: ' + L.src + '.';
+  $('idNote').textContent = note;
+  $('btnIdChange').disabled = !port || ST.busy || ID.busy;
+}
+
+function openIdDialog() {
+  const sel = $('idTableSel');
+  sel.innerHTML = '';
+  const nodes = FIRMWARES ? FIRMWARES.nodes : [];
+  for (const n of nodes) {
+    const o = document.createElement('option');
+    o.value = String(n); o.textContent = nodeLabel(n);
+    sel.appendChild(o);
+  }
+  if (WEB && FIRMWARES) {
+    const o = document.createElement('option');
+    o.value = 'new'; o.textContent = 'Nuevo: NODO-' + pad3(nextNode()) + ' (credenciales generadas)';
+    sel.appendChild(o);
+  }
+  sel.hidden = !nodes.length;
+  if (WEB) {
+    $('idOpt1Txt').textContent = 'Graba el número de nodo y sus credenciales de la base de datos, y registra que esta tarjeta lo tiene.';
+    $('idOpt2Txt').textContent = WEBSTATE.admin
+      ? 'Para un dispositivo nuevo: se guarda en la base y se graba en la tarjeta. Necesita el firmware de prueba cargado.'
+      : 'Solo un administrador puede agregar nodos nuevos a la base.';
+  }
+  $('idTableNum').hidden = !!nodes.length; // sin firmwares la página no conoce la tabla: se escribe el número
+  const cur = nodeNum(S.node);
+  if (cur && nodes.includes(cur)) sel.value = String(cur);
+  $('idDlgNow').textContent = 'Ahora: ' + (S.node || 'nodo desconocido') + (S.lora.dev ? ' · DevEUI ' + fmtHex(S.lora.dev) : '') +
+    ' · Firmware ' + (S.fw || '?') + '.';
+  idButtons();
+  idMsg(runningPost() ? '' : 'La opción 2 necesita el firmware de prueba (Estación → Opciones → Solo cargar firmware de prueba).',
+        runningPost() ? 'info' : 'warn');
+  $('idDlg').showModal();
+}
+
+async function idRun(fn) {
+  if (ID.busy || ST.busy) return;
+  ID.busy = true; ST.cancel = false;
+  for (const b of ['idTableGo', 'idCustomGo', 'idClose']) $(b).disabled = true;
+  render();
+  try { await fn(); }
+  catch (e) { idMsg(e.message, 'bad'); }
+  finally {
+    ID.busy = false;
+    $('idClose').disabled = false;
+    idButtons();
+    render();
+  }
+}
+
+async function idRefresh() {
+  S.loraAt = 0; S.nodeAt = 0;
+  await waitFor(() => S.loraAt && S.nodeAt, 8000, 'La tarjeta no respondió LORA:CRED? / NODE?.',
+                () => { send('NODE?', true); send('LORA:CRED?', true); }, 3000);
+}
+
+$('btnIdChange').addEventListener('click', openIdDialog);
+$('idClose').addEventListener('click', () => $('idDlg').close());
+$('idKeyShow').addEventListener('click', () => { ID.showKey = !ID.showKey; render(); });
+
+$('idTableGo').addEventListener('click', () => idRun(async () => {
+  if (WEB && $('idTableSel').value === 'new') {
+    if (!runningPost()) throw new Error('Necesita el firmware de prueba cargado.');
+    await needDeviceId();
+    const mine = WEBSTATE.nodes.find(x => x.device_id === S.deviceId);
+    if (mine) throw new Error('Esta tarjeta ya tiene NODO-' + pad3(mine.node) + ' en la base. Para cambiarlo, elige otro nodo de la lista.');
+    if (!confirm('¿Crear NODO-' + pad3(nextNode()) + ' con credenciales nuevas y grabarlo en esta tarjeta? Reemplaza la identidad actual (' +
+                 (S.node || 'desconocida') + ').')) return;
+    const n = await createNode(idMsg);
+    ID.written = null;
+    await idRefresh();
+    idMsg('Listo: la tarjeta es NODO-' + pad3(n) + ', nodo nuevo en la base. Falta registrarlo en la plataforma (página Nodos).', 'ok');
+    return;
+  }
+  const n = FIRMWARES ? +$('idTableSel').value : +$('idTableNum').value;
+  if (!(n >= 1 && n <= 999)) throw new Error('Escribe un número de nodo entre 1 y 999.');
+  if (WEB && !runningPost()) throw new Error('Necesita el firmware de prueba cargado.');
+  if (!confirm('¿Grabar NODO-' + pad3(n) + ' con las credenciales de la ' + (WEB ? 'base de datos' : 'tabla') +
+               '? Reemplaza la identidad actual (' + (S.node || 'desconocida') + ').')) return;
+  await writeNode(n, idMsg);
+  ID.written = null;
+  await idRefresh();
+  idMsg('Listo: la tarjeta es NODO-' + pad3(n) + ' con las credenciales de la ' + (WEB ? 'base.' : 'tabla.') +
+        (runningPost() ? '' : ' Reinicia el collar para que las use.'), 'ok');
+}));
+
+$('idCustomGo').addEventListener('click', () => idRun(async () => {
+  const n = +$('idNum').value;
+  const v = id => $(id).value.replace(/[\s:-]/g, '').toUpperCase();
+  const dev = v('idDevIn'), join = v('idJoinIn'), key = v('idKeyIn');
+  const checks = [['idNum', n >= 1 && n <= 999], ['idDevIn', HEX16.test(dev)], ['idJoinIn', HEX16.test(join)], ['idKeyIn', HEX32.test(key)]];
+  for (const [id, ok] of checks) $(id).classList.toggle('bad', !ok);
+  if (checks.some(([, ok]) => !ok)) throw new Error('Revisa los campos en rojo: número 1–999, DevEUI y JoinEUI de 16 caracteres hex, AppKey de 32.');
+  if (!runningPost()) throw new Error('Necesita el firmware de prueba cargado.');
+  if (WEB && !WEBSTATE.admin) throw new Error('Solo un administrador puede agregar nodos nuevos a la base.');
+  if (!confirm('¿Grabar NODO-' + pad3(n) + ' con DevEUI ' + fmtHex(dev) + '? Reemplaza las credenciales que tiene la tarjeta.')) return;
+  if (WEB) {
+    const prev = WEBSTATE.nodes.find(x => x.node === n);
+    if (prev && prev.dev_eui !== dev &&
+        !confirm('El NODO-' + pad3(n) + ' ya existe en la base con DevEUI ' + fmtHex(prev.dev_eui) + '. ¿Reemplazar sus credenciales en la base?')) return;
+    idMsg('Guardando el nodo en la base…');
+    await api('/nodes', { method: 'POST', body: JSON.stringify({ node: n, dev_eui: dev, join_eui: join, app_key: key, notes: 'agregado desde la estación' }) });
+    await refreshNodes();
+    await writeNode(n, idMsg);
+  } else {
+    await writeCreds(n, dev, join, key, idMsg);
+  }
+  ID.written = { n, dev };
+  await idRefresh();
+  idMsg('Listo: NODO-' + pad3(n) + ' con credenciales propias (DevEUI ' + fmtHex(dev) + '). Se usan al reiniciar y con el firmware principal.', 'ok');
+}));
+
+/* ===================== Versión web (Cloudflare: estacion_web) =====================
+ * Servida por https detrás de Cloudflare Access: los firmwares se descargan de firmware/firmwares.json, los nodos y
+ * sus credenciales salen de la base (/api) y cada prueba queda registrada. Abierta como archivo, nada de esto se usa. */
+const WEB = /^https?:$/.test(location.protocol);
+const WEBSTATE = { user: '', admin: false, nodes: [], error: '' };
+
+const SESSION_EXPIRED = 'La sesión de Cloudflare venció: recarga la página (F5) para volver a entrar y repite lo que estabas haciendo.';
+async function api(path, opts = {}) {
+  let r;
+  // redirect 'manual': con la sesión de Cloudflare Access vencida, Access responde con una redirección a su login, que
+  // el navegador bloquea (otro dominio) y solo dice "Failed to fetch". Así se reconoce y se explica
+  try {
+    r = await fetch('/api' + path, { credentials: 'same-origin', redirect: 'manual', ...opts,
+                                     headers: { 'content-type': 'application/json', ...(opts.headers || {}) } });
+  } catch (e) {
+    throw new Error('no hubo respuesta del servidor (' + e.message + '). Revisa la conexión a internet; si sigue, ' +
+                    'recarga la página (F5): la sesión de Cloudflare puede haber vencido.');
+  }
+  if (r.type === 'opaqueredirect' || r.status === 0) { const e = new Error(SESSION_EXPIRED); e.status = 401; throw e; }
+  let data = null;
+  try { data = await r.json(); } catch (_) {}
+  if (!r.ok && !data && (r.status === 401 || r.status === 403)) { const e = new Error(SESSION_EXPIRED); e.status = r.status; throw e; }
+  if (!r.ok) {
+    const e = new Error((data && data.error) || ('Error ' + r.status + ' de la base'));
+    e.status = r.status; e.data = data;
+    throw e;
+  }
+  return data;
+}
+
+// Siguiente número del consecutivo (el que daría la base a un nodo nuevo)
+const nextNode = () => (WEB && WEBSTATE.nodes.length ? Math.max(...WEBSTATE.nodes.map(x => x.node)) : 0) + 1;
+
+// Nodo nuevo para esta tarjeta: la base genera las credenciales con el siguiente número y lo registra; aquí se graban
+async function createNode(say = m => stSet('node', m)) {
+  await needDeviceId();
+  say('Creando un nodo nuevo en la base…');
+  let cred;
+  try {
+    cred = await api('/nodes/new', { method: 'POST', body: JSON.stringify({ device: S.deviceId }) });
+  } catch (e) {
+    throw new StationStop('La base no creó el nodo: ' + e.message);
+  }
+  emit((cred.existing ? 'La tarjeta ya tenía NODO-' : 'Nodo nuevo en la base: NODO-') + pad3(cred.node) +
+       ' (DevEUI ' + fmtHex(cred.dev_eui) + ').', 'ok');
+  await writeCreds(cred.node, cred.dev_eui, cred.join_eui, cred.app_key, say);
+  await refreshNodes();
+  return cred.node;
+}
+
+function nodeLabel(n) {
+  const info = WEB && WEBSTATE.nodes.find(x => x.node === n);
+  if (!info || !info.device_id) return 'NODO-' + pad3(n);
+  return 'NODO-' + pad3(n) + (info.device_id === S.deviceId ? ' (esta tarjeta)' : ' (en otra tarjeta)');
+}
+
+async function refreshNodes(reinit = true) {
+  WEBSTATE.nodes = await api('/nodes');
+  if (FIRMWARES) FIRMWARES.nodes = WEBSTATE.nodes.map(x => x.node);
+  if (reinit) initStation();
+}
+
+async function initWeb() {
+  $('lnkNodes').hidden = false;
+  try {
+    const me = await api('/me');
+    WEBSTATE.user = me.email; WEBSTATE.admin = !!me.admin;
+    if (!FIRMWARES) {
+      const r = await fetch('firmware/firmwares.json', { cache: 'no-store', credentials: 'same-origin' });
+      if (!r.ok) throw new Error('no se pudieron descargar los firmwares (' + r.status + ')');
+      FIRMWARES = await r.json();
+    }
+    WEBSTATE.publishedMain = FIRMWARES.main;
+    await loadActiveMain();
+    await loadTests();
+    $('btnSuper').hidden = !WEBSTATE.admin;
+    await refreshNodes(false);
+  } catch (e) {
+    WEBSTATE.error = e.message; FIRMWARES = null;
+    emit('Estación web: ' + e.message, 'bad');
+  }
+  initStation();
+  render();
+}
+
+/* ---------- Modo superusuario: firmware principal desde la base ----------
+ * Un administrador sube el firmware.zip de PlatformIO; el activo reemplaza al de la publicación para todos. */
+async function loadActiveMain() {
+  try {
+    const a = await api('/firmware/main');
+    FIRMWARES.main = a ? { ...a, built: a.built || '?' } : WEBSTATE.publishedMain;
+  } catch (e) { // sin la tabla o sin base: la estación sigue con el de la publicación
+    FIRMWARES.main = WEBSTATE.publishedMain;
+    emit('No se pudo leer el firmware principal de la base (' + e.message + '): se usa el de la publicación.', 'warn');
+  }
+}
+
+// Programas de prueba subidos (los ofrece «Cargar programa de prueba» en Opciones); sin base, ninguno
+async function loadTests() {
+  try { WEBSTATE.tests = await api('/firmware/tests'); } catch (_) { WEBSTATE.tests = []; }
+}
+$('btnOnlyTest').addEventListener('click', () => {
+  const tests = WEBSTATE.tests || [];
+  const f = tests.find(x => String(x.id) === $('testSel').value) || tests[0];
+  if (!f || ST.busy) return;
+  if (!confirm('¿Cargar el programa de prueba ' + f.version + ' en la tarjeta conectada?\n\nReemplaza el programa que tenga. ' +
+               'Para volver a dejarla de collar, usa después «Iniciar prueba y carga».')) return;
+  loadTestCode(f);
+});
+
+// Lector mínimo de .zip (directorio central + deflate con DecompressionStream del navegador)
+async function readZip(buf) {
+  const u8 = new Uint8Array(buf), dv = new DataView(buf);
+  let e = -1;
+  for (let i = u8.length - 22; i >= Math.max(0, u8.length - 65557); i--) if (dv.getUint32(i, true) === 0x06054b50) { e = i; break; }
+  if (e < 0) throw new Error('no es un archivo .zip');
+  const count = dv.getUint16(e + 10, true), files = {};
+  let p = dv.getUint32(e + 16, true);
+  for (let k = 0; k < count; k++) {
+    if (dv.getUint32(p, true) !== 0x02014b50) throw new Error('el .zip está dañado');
+    const nlen = dv.getUint16(p + 28, true);
+    const t = dv.getUint16(p + 12, true), d = dv.getUint16(p + 14, true); // fecha y hora MS-DOS del archivo
+    files[new TextDecoder().decode(u8.subarray(p + 46, p + 46 + nlen))] = {
+      method: dv.getUint16(p + 10, true), csize: dv.getUint32(p + 20, true), off: dv.getUint32(p + 42, true),
+      date: ((d >> 9) + 1980) + '-' + String((d >> 5) & 15).padStart(2, '0') + '-' + String(d & 31).padStart(2, '0') + ' ' +
+            String(t >> 11).padStart(2, '0') + ':' + String((t >> 5) & 63).padStart(2, '0') };
+    p += 46 + nlen + dv.getUint16(p + 30, true) + dv.getUint16(p + 32, true);
+  }
+  const get = async name => {
+    const f = files[name];
+    if (!f) throw new Error('al .zip le falta ' + name);
+    const start = f.off + 30 + dv.getUint16(f.off + 26, true) + dv.getUint16(f.off + 28, true);
+    const data = u8.slice(start, start + f.csize);
+    if (f.method === 0) return data;
+    if (f.method !== 8) throw new Error('compresión del .zip no soportada');
+    return new Uint8Array(await new Response(new Blob([data]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).arrayBuffer());
+  };
+  get.names = Object.keys(files);
+  get.date = name => files[name] && files[name].date;
+  return get;
+}
+const bytesText = b => { let s = ''; for (let i = 0; i < b.length; i += 0x8000) s += String.fromCharCode.apply(null, b.subarray(i, i + 0x8000)); return s; };
+const MONTHS = { Jan: 1, Feb: 2, Mar: 3, Apr: 4, May: 5, Jun: 6, Jul: 7, Aug: 8, Sep: 9, Oct: 10, Nov: 11, Dec: 12 };
+const fwStem = path => path.split(/[\\/]/).pop().replace(/(\.ino)?\.zip$/i, '').replace(/[^\w.\- ]+/g, '_').slice(0, 40);
+
+// .zip de carga -> {bootVersion (null si no imprime [BOOT]), built, size, crc16, bin, dat, stem}. Acepta también la
+// carpeta build de Arduino comprimida entera: abre el <sketch>.ino.zip que trae adentro
+async function parseFirmwareZip(file) {
+  if (/\.(hex|uf2|bin|elf)$/i.test(file.name)) {
+    throw new Error('hace falta el .zip de carga (PlatformIO: firmware.zip; Arduino: <sketch>.ino.zip), no el .' + file.name.split('.').pop());
+  }
+  let get = await readZip(await file.arrayBuffer()), from = file.name;
+  if (!get.names.includes('manifest.json')) {
+    const inner = get.names.filter(n => /\.zip$/i.test(n));
+    if (inner.length !== 1) {
+      throw new Error(inner.length ? 'trae varios .zip adentro (' + inner.join(', ') + '): sube solo el de carga'
+                                   : 'no es un .zip de carga: no trae manifest.json (PlatformIO: firmware.zip; Arduino: <sketch>.ino.zip)');
+    }
+    from = inner[0];
+    get = await readZip((await get(inner[0])).buffer);
+    if (!get.names.includes('manifest.json')) throw new Error(inner[0] + ' no es un .zip de carga (no trae manifest.json)');
+  }
+  const app = (JSON.parse(new TextDecoder().decode(await get('manifest.json'))).manifest || {}).application;
+  if (!app) throw new Error('el manifest.json no trae una aplicación');
+  const bin = await get(app.bin_file), dat = await get(app.dat_file);
+  const crc = Dfu.crc16(bin);
+  if (crc !== (app.init_packet_data || {}).firmware_crc16) throw new Error('el CRC del .bin no coincide con el manifest (archivo dañado)');
+  if (bin.length > FW_MAX_BYTES) throw new Error('pesa ' + bin.length + ' B y pasa el límite de ' + FW_MAX_BYTES + ' B (borraría el contexto de LoRaWAN)');
+  const text = bytesText(bin);
+  const m = /\[BOOT\] Firmware ([\w.\- ]{1,40}) compilado: (\w{3}) +(\d{1,2}) (\d{4}) (\d\d):(\d\d)/.exec(text);
+  const built = m ? m[4] + '-' + String(MONTHS[m[2]] || 0).padStart(2, '0') + '-' + m[3].padStart(2, '0') + ' ' + m[5] + ':' + m[6]
+                  : get.date(app.bin_file) || null;
+  return { bootVersion: m ? m[1] : null, built, size: bin.length, crc16: crc, bin: btoa(text), dat: btoa(bytesText(dat)), stem: fwStem(from) };
+}
+
+const FWDLG = { parsed: null, list: [], busy: false };
+const fwMsg = (t, cls = 'info') => { $('fwMsg').textContent = t; $('fwMsg').className = cls; };
+const fwLine = f => f.version + ' · ' + f.size.toLocaleString('es') + ' B · compilado ' + (f.built || '?') + ' · SHA-256 ' + f.sha256.slice(0, 12) + '…';
+const fwUploaded = f => 'Subido por ' + esc(f.uploaded_by) + ' el ' + esc(f.uploaded_at) + ' UTC' + (f.notes ? ' · ' + esc(f.notes) : '');
+
+// Lo que impide subir lo elegido ('' = se puede)
+function fwProblem() {
+  const p = FWDLG.parsed;
+  if (!p) return 'Elige el archivo.';
+  if ($('fwTest').checked) {
+    return /^[\w.\- ]{1,40}$/.test($('fwName').value.trim()) && !/^POST-TEST/i.test($('fwName').value.trim()) ? ''
+      : 'Ponle un nombre de 1 a 40 letras, números, punto, guion o espacio (que no empiece por POST-TEST).';
+  }
+  if (!p.bootVersion) {
+    return 'Como firmware principal no sirve: no imprime la línea "[BOOT] Firmware <versión> compilado: …" con la que la ' +
+           'estación confirma la carga. Si es un código de prueba, marca la casilla «Es un código de prueba».';
+  }
+  if (/^POST-TEST/i.test(p.bootVersion)) return 'Es el firmware de prueba de la estación (' + p.bootVersion + '), no el principal.';
+  return '';
+}
+
+function renderFwDlg() {
+  const cur = FIRMWARES && FIRMWARES.main, pub = WEBSTATE.publishedMain;
+  $('fwNow').innerHTML = !cur ? 'Sin firmwares.' :
+    '<b>' + esc(cur.version) + '</b> <span class="muted">' + esc(fwLine(cur)) + '</span><br>' +
+    (cur.uploaded_by ? fwUploaded(cur) : 'El de la publicación (página generada ' + esc(FIRMWARES.generated) + ').');
+  const mains = FWDLG.list.filter(f => f.kind !== 'test'), tests = FWDLG.list.filter(f => f.kind === 'test');
+  const anyActive = mains.some(f => f.active);
+  const rows = mains.map(f =>
+    '<li class="' + (f.active ? 'on' : '') + '"><span class="fwtxt"><b>' + esc(f.version) + '</b>' + (f.active ? ' <span class="pill ok">EN USO</span>' : '') +
+    '<br><span class="muted">' + esc(fwLine(f)) + '<br>' + fwUploaded(f) + '</span></span><span class="fwbtn">' +
+    (f.active ? '' : '<button data-fwuse="' + f.id + '">Usar este</button><button data-fwdel="' + f.id + '">Borrar</button>') + '</span></li>');
+  if (pub) {
+    rows.push('<li class="' + (anyActive ? '' : 'on') + '"><span class="fwtxt"><b>El de la publicación: ' + esc(pub.version) + '</b>' +
+      (anyActive ? '' : ' <span class="pill ok">EN USO</span>') + '<br><span class="muted">' + esc(fwLine(pub)) +
+      ' · viene con la página (tools/build_estacion.py --web)</span></span><span class="fwbtn">' +
+      (anyActive ? '<button data-fwuse="pub">Volver a este</button>' : '') + '</span></li>');
+  }
+  $('fwList').innerHTML = rows.join('');
+  $('fwTestList').innerHTML = tests.length ? tests.map(f =>
+    '<li><span class="fwtxt"><b>' + esc(f.version) + '</b><br><span class="muted">' + esc(fwLine(f)) + '<br>' + fwUploaded(f) +
+    '</span></span><span class="fwbtn"><button class="primary" data-fwflash="' + f.id + '">Cargar en la tarjeta</button>' +
+    '<button data-fwdel="' + f.id + '">Borrar</button></span></li>').join('')
+    : '<li class="muted">Ninguno todavía: sube uno con la casilla «Es un código de prueba» marcada.</li>';
+
+  const p = FWDLG.parsed, test = $('fwTest').checked;
+  $('fwParsed').hidden = !p;
+  $('fwNameRow').hidden = !test;
+  $('fwActivateRow').hidden = test;
+  $('fwUpload').textContent = test ? 'Subir código de prueba' : 'Subir firmware principal';
+  const problem = fwProblem();
+  if (p) {
+    const name = test ? $('fwName').value.trim() : p.bootVersion;
+    const same = (test ? tests : mains).some(f => f.version === name) || (!test && pub && name === pub.version);
+    $('fwParsedInfo').innerHTML =
+      (test ? 'Código de prueba' : 'Firmware principal, versión <b>' + esc(p.bootVersion || '?') + '</b>') + ' · ' +
+      p.size.toLocaleString('es') + ' B · compilado ' + esc(p.built || '?') + ' · CRC OK' +
+      (test && p.bootVersion ? ' · imprime [BOOT] ' + esc(p.bootVersion) : '') +
+      (problem ? '<br><span class="bad">' + esc(problem) + '</span>' :
+       same ? '<br><span class="bad">Ojo: ya hay ' + (test ? 'un código de prueba con el nombre ' : 'otro firmware con la versión ') + esc(name) +
+              (test ? '. Ponle otro nombre para no confundirlos.' : '. La estación no podrá distinguirlos en la tarjeta: sube WEARME_FW_VERSION y vuelve a compilar.') +
+              '</span>' : '');
+  }
+  for (const b of $('fwDlg').querySelectorAll('button')) if (b.id !== 'fwClose') b.disabled = FWDLG.busy || (!!b.dataset.fwflash && ST.busy);
+  $('fwUpload').disabled = FWDLG.busy || !!problem;
+}
+
+async function fwRefresh() {
+  FWDLG.list = await api('/firmware');
+  WEBSTATE.tests = FWDLG.list.filter(f => f.kind === 'test');
+  await loadActiveMain();
+  initStation();
+  renderFwDlg();
+}
+
+async function fwDo(what, fn) {
+  if (FWDLG.busy) return;
+  if (ST.busy) { fwMsg('La estación está cargando una tarjeta: espera a que termine.', 'warn'); return; }
+  FWDLG.busy = true; renderFwDlg(); fwMsg(what + '…');
+  let ok = '', bad = '';
+  try { ok = await fn(); } catch (e) { bad = 'No se pudo: ' + e.message; }
+  FWDLG.busy = false;
+  try { await fwRefresh(); } catch (e) { bad = bad || 'No se pudo leer la lista: ' + e.message; }
+  fwMsg(bad || ok, bad ? 'bad' : 'ok');
+}
+
+async function openFwDialog() {
+  FWDLG.parsed = null; $('fwFile').value = ''; $('fwNotes').value = ''; $('fwName').value = '';
+  $('fwActivate').checked = true; $('fwTest').checked = false;
+  fwMsg('');
+  renderFwDlg();
+  $('fwDlg').showModal();
+  try { await fwRefresh(); } catch (e) { fwMsg('No se pudo leer la lista: ' + e.message, 'bad'); }
+}
+
+// Graba un código de prueba de la base en la tarjeta conectada (sin POST, sin nodo, sin verificar la versión)
+async function loadTestCode(meta) {
+  if (ST.busy || ID.busy) return;
+  if (!('serial' in navigator)) { alert('Abre esta página con Microsoft Edge o Google Chrome.'); return; }
+  if (demoMode) stopDemo();
+  $('fwDlg').close();
+  ST.busy = true; ST.cont = false; ST.cancel = false; ST.steps = ['', '', '', ''];
+  stSet('start', 'Bajando el código de prueba ' + meta.version + '…');
+  try {
+    const f = await api('/firmware/' + meta.id);
+    if (!port && !(await findPort('app')) && !(await findPort('bootloader'))) {
+      stSet('auth', 'Elige la tarjeta en la ventana del navegador.', 'warn');
+      try { await navigator.serial.requestPort({ filters: BOARD_VIDS.map(v => ({ usbVendorId: v })) }); }
+      catch (_) { throw new StationStop('No se eligió ninguna tarjeta.'); }
+    }
+    const opened = await loadFirmware('test', f);
+    stSet('done', 'Código de prueba ' + f.version + ' cargado en la tarjeta.' + (opened ? ' Lo que imprime sale en la consola.' :
+      ' Arrancó con otro puerto USB: usa «Conectar placa» para ver lo que imprime.') +
+      ' Para dejarla de collar, usa «Iniciar prueba y carga».', 'ok');
+  } catch (e) {
+    stSet('error', e instanceof StationStop ? e.message : 'Error: ' + e.message, 'bad');
+    emit(ST.msg, 'bad');
+    if (!port) { const p = await findPort('app'); if (p) await openPort(p); }
+  } finally {
+    ST.busy = false; ST.auth = '';
+    render();
+  }
+}
+
+$('btnSuper').onclick = () => openFwDialog();
+$('fwClose').onclick = () => $('fwDlg').close();
+$('fwTest').onchange = () => {
+  if ($('fwTest').checked && FWDLG.parsed && !$('fwName').value.trim()) $('fwName').value = FWDLG.parsed.stem;
+  renderFwDlg();
+};
+$('fwName').oninput = () => renderFwDlg();
+$('fwFile').onchange = async () => {
+  FWDLG.parsed = null; fwMsg(''); renderFwDlg();
+  const file = $('fwFile').files[0];
+  if (!file) return;
+  try { FWDLG.parsed = await parseFirmwareZip(file); $('fwName').value = FWDLG.parsed.stem; }
+  catch (e) { fwMsg('Ese archivo no sirve: ' + e.message, 'bad'); }
+  renderFwDlg();
+};
+$('fwUpload').onclick = () => {
+  const p = FWDLG.parsed;
+  if (!p || fwProblem()) return;
+  const test = $('fwTest').checked, act = !test && $('fwActivate').checked;
+  const version = test ? $('fwName').value.trim() : p.bootVersion;
+  if (act && !confirm('¿Subir ' + version + ' y usarlo YA como firmware principal en todas las estaciones?')) return;
+  fwDo('Subiendo ' + version, async () => {
+    await api('/firmware', { method: 'POST', body: JSON.stringify({
+      kind: test ? 'test' : 'main', version, built: p.built, bin: p.bin, dat: p.dat, notes: $('fwNotes').value.trim(), activate: act }) });
+    FWDLG.parsed = null; $('fwFile').value = ''; $('fwNotes').value = ''; $('fwName').value = '';
+    if (test) {
+      emit('Código de prueba ' + version + ' subido.', 'ok');
+      return 'Listo: código de prueba ' + version + ' subido. Cárgalo con «Cargar en la tarjeta» (abajo).';
+    }
+    emit('Firmware principal ' + version + ' subido' + (act ? ' y en uso.' : '.'), 'ok');
+    return 'Listo: ' + version + ' subido' + (act ? ' y en uso. Las tarjetas que se carguen desde ahora reciben esta versión.' : '.');
+  });
+};
+function fwListClick(e) {
+  const use = e.target.closest('[data-fwuse]'), del = e.target.closest('[data-fwdel]'), flash = e.target.closest('[data-fwflash]');
+  if (use) {
+    const id = use.dataset.fwuse === 'pub' ? null : +use.dataset.fwuse;
+    const f = id == null ? WEBSTATE.publishedMain : FWDLG.list.find(x => x.id === id);
+    if (!confirm('¿Usar ' + f.version + ' como firmware principal en todas las estaciones?')) return;
+    fwDo('Cambiando a ' + f.version, async () => {
+      await api('/firmware/active', { method: 'POST', body: JSON.stringify({ id }) });
+      emit('Firmware principal en uso: ' + f.version + '.', 'ok');
+      return 'Listo: ahora se carga ' + f.version + '.';
+    });
+  } else if (flash) {
+    const f = FWDLG.list.find(x => x.id === +flash.dataset.fwflash);
+    if (ST.busy) { fwMsg('La estación está cargando una tarjeta: espera a que termine.', 'warn'); return; }
+    if (!confirm('¿Cargar el código de prueba ' + f.version + ' en la tarjeta conectada? Reemplaza el programa que tenga.')) return;
+    loadTestCode(f);
+  } else if (del) {
+    const f = FWDLG.list.find(x => x.id === +del.dataset.fwdel);
+    if (!confirm('¿Borrar ' + f.version + ' de la base? No se puede deshacer.')) return;
+    fwDo('Borrando ' + f.version, async () => {
+      await api('/firmware/' + f.id, { method: 'DELETE' });
+      return 'Borrado ' + f.version + '.';
+    });
+  }
+}
+$('fwList').addEventListener('click', fwListClick);
+$('fwTestList').addEventListener('click', fwListClick);
+
+async function needDeviceId() {
+  if (S.deviceId) return;
+  await waitFor(() => S.deviceId, 8000, 'La tarjeta no informó su DEVICEID (¿firmware de prueba viejo?).', () => send('NODE?', true), 3000);
+}
+
+// Graba en la tarjeta credenciales y número de nodo (firmware de prueba): LORA:CRED:RESET, LORA:CRED:SET, NODE:ID
+async function writeCreds(n, dev, join, key, say) {
+  say('Borrando las credenciales anteriores…');
+  S.loraResetAt = 0; S.loraError = '';
+  send('LORA:CRED:RESET', true);
+  await waitFor(() => S.loraResetAt || S.loraError, 8000, 'La tarjeta no confirmó el borrado.');
+  if (S.loraError) throw new StationStop('No se pudieron borrar: ' + S.loraError);
+  say('Grabando las credenciales de NODO-' + pad3(n) + '…');
+  S.loraSetAt = 0; S.loraError = '';
+  send('LORA:CRED:SET ' + dev + ' ' + join + ' ' + key, true);
+  const okSet = await waitFor(() => S.loraSetAt || S.loraError, 8000, null);
+  if (!okSet || S.loraError) {
+    throw new StationStop('No se grabaron (' + (S.loraError || 'sin respuesta') + '). OJO: la tarjeta quedó SIN credenciales: ' +
+                          'vuelve a intentarlo antes de cargar el firmware principal.');
+  }
+  S.nodeIdAt = 0; S.nodeError = '';
+  send('NODE:ID=' + n, true);
+  await waitFor(() => S.nodeIdAt || S.nodeError, 8000, 'La tarjeta no confirmó el número de nodo.');
+  if (S.nodeError) throw new StationStop('Credenciales grabadas, pero el número de nodo no: ' + S.nodeError);
+}
+
+// Registra en la base que esta tarjeta tiene el nodo n
+async function assignInDb(n, force) {
+  await needDeviceId();
+  try {
+    await api('/boards/' + S.deviceId + '/assign', { method: 'POST', body: JSON.stringify({ node: n, force: !!force }) });
+  } catch (e) {
+    throw new StationStop('La base no registró NODO-' + pad3(n) + ' para esta tarjeta: ' + e.message);
+  }
+  await refreshNodes();
+}
+
+// Identidad del nodo n en la tarjeta. Web: credenciales de la base + registro; archivo local: NODE:SET (tabla)
+async function writeNode(n, say = m => stSet('node', m)) {
+  if (!WEB) {
+    say('Grabando NODO-' + pad3(n) + ' en la tarjeta…');
+    S.nodeSetAt = 0; S.nodeError = '';
+    send('NODE:SET=' + n, true);
+    await waitFor(() => S.nodeSetAt || S.nodeError, 10000, 'La tarjeta no confirmó la grabación del nodo.');
+    if (S.nodeError) throw new StationStop('No se pudo grabar el nodo: ' + S.nodeError);
+    return;
+  }
+  await needDeviceId();
+  say('Pidiendo a la base las credenciales de NODO-' + pad3(n) + '…');
+  let cred, force = false;
+  try {
+    cred = await api('/nodes/' + n + '/credentials?device=' + S.deviceId);
+  } catch (e) {
+    if (e.status === 409 && e.data && e.data.can_force &&
+        confirm(e.message + '.\n\n¿Reasignar el nodo a esta tarjeta? La otra quedará sin nodo en la base.')) {
+      force = true;
+      cred = await api('/nodes/' + n + '/credentials?device=' + S.deviceId + '&force=1');
+    } else {
+      throw new StationStop(e.message);
+    }
+  }
+  await writeCreds(n, cred.dev_eui, cred.join_eui, cred.app_key, say);
+  await assignInDb(n, force);
+}
+
+// Registra una prueba en la base (no detiene la estación si falla)
+async function logTest(step, result, failures, node) {
+  if (!WEB) return;
+  try {
+    await needDeviceId();
+    await api('/tests', { method: 'POST', body: JSON.stringify({
+      device_id: S.deviceId, node: node || (S.nodeStored ? nodeNum(S.node) : null), step, result, failures, firmware: S.fw || null,
+      results: {
+        subsistemas: Object.fromEntries(CATALOG.map(c => [c.token, S.subs[c.code].state])),
+        micro: Object.fromEntries(Object.entries(S.micro).map(([k, v]) => [k, v.value])),
+      },
+    }) });
+    emit('Prueba registrada en la base (' + step + ': ' + result + ').', 'ok');
+  } catch (e) {
+    emit('No se pudo registrar la prueba en la base: ' + e.message, 'warn');
+  }
+}
+
+function idButtons() {
+  $('idTableGo').disabled = ID.busy || (WEB && !runningPost());
+  $('idCustomGo').disabled = ID.busy || !runningPost() || (WEB && !WEBSTATE.admin);
+}
+
+// Guía: se abre sola la primera vez
+$('btnGuide').addEventListener('click', () => $('guideDlg').showModal());
+$('guideClose').addEventListener('click', () => {
+  $('guideDlg').close();
+  try { localStorage.setItem('wearme-guia-vista', '1'); } catch (_) {}
+});
+for (const a of document.querySelectorAll('.guide .toc a')) {
+  a.addEventListener('click', e => { e.preventDefault(); document.querySelector(a.getAttribute('href')).scrollIntoView({ behavior: 'smooth' }); });
+}
+
+// Ejemplo sin placa
+function startDemo() {
+  if (port) return;
+  demoMode = true; waitingReconnect = false;
+  S = newState(); events.length = 0; rawEl.textContent = '';
+  emit('Modo ejemplo: datos simulados. La microSD falla la primera vez; toca “Tarjeta microSD” y “Repetir esta prueba”.', 'warn');
+  const lines = Demo.start();
+  let i = 0;
+  const step = () => { if (!demoMode) return; for (let k = 0; k < 2 && i < lines.length; k++) feed(lines[i++]); if (i < lines.length) demoTimer = setTimeout(step, 90); };
+  step();
+}
+function stopDemo() {
+  demoMode = false; clearTimeout(demoTimer);
+  S = newState(); events.length = 0; rawEl.textContent = '';
+  render();
+}
+$('btnDemo').addEventListener('click', () => demoMode ? stopDemo() : startDemo());
+
+// Cada segundo: "hace X s", y si la placa calla se le pregunta si está viva
+setInterval(() => {
+  if (demoMode) {
+    if (!S.post && Date.now() - S.lastLineAt > 10000) feed(Demo.vivo());
+  } else if (port && S.lastLineAt) {
+    const silent = Date.now() - S.lastLineAt;
+    if (silent > 15000 && !pinged && !S.post) { pinged = true; send('VIVO?', true); }
+  }
+  render();
+}, 1000);
+
+if (WEB) initWeb(); else initStation();
+render();
+try { if (!localStorage.getItem('wearme-guia-vista') && location.hash !== '#ejemplo') $('guideDlg').showModal(); } catch (_) {}
+// diagnostico.html#ejemplo abre directamente el ejemplo (para capacitación)
+if (location.hash === '#ejemplo') startDemo();
+</script>
+</body>
+</html>

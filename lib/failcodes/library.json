@@ -1,0 +1,7 @@
+{
+  "name": "failcodes",
+  "version": "1.0.0",
+  "description": "Significado de los patrones de LED de la placa Wearme: eventos, modos por estado y codigos de falla por subsistema (tablas editables).",
+  "frameworks": "arduino",
+  "platforms": "nordicnrf52"
+}

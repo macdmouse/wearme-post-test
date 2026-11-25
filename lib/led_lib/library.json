@@ -1,0 +1,7 @@
+{
+  "name": "led_lib",
+  "version": "1.0.0",
+  "description": "Driver no bloqueante de los LEDs de estado de la placa Wearme (verde P0.02, rojo P0.03, azul P0.31). Los significados estan en lib/failcodes.",
+  "frameworks": "arduino",
+  "platforms": "nordicnrf52"
+}

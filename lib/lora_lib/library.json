@@ -1,0 +1,7 @@
+{
+  "name": "lora_lib",
+  "version": "1.0.0",
+  "description": "Nodo LoRaWAN OTAA (clase A) para Wio Tracker 1110 / WM1110 sobre LoRa Basics Modem, con payload Cayenne LPP. Requiere las librerias LBM_WM1110 y LBMX del framework Seeed nRF52 y CayenneLPP en lib_deps.",
+  "frameworks": "arduino",
+  "platforms": "nordicnrf52"
+}
